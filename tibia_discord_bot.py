@@ -79,7 +79,7 @@ def make_discord_message(boss, creature, rashid):
         boss_line = f"🧙 **Boosted Boss:** [{boss['name']}]({boss['url']})\n"
         boss_line += f"HP: {boss['hp']} | EXP: {boss['exp']}\n"
         if boss['img']:
-            boss_line += f"Image: {boss['img']}\n"
+            boss_line += f"{boss['img']}\n"  # Image URL on its own line for Discord preview
         lines.append(boss_line)
     else:
         lines.append("🧙 **Boosted Boss:** Not found")
@@ -88,7 +88,7 @@ def make_discord_message(boss, creature, rashid):
         creature_line = f"🐾 **Boosted Creature:** [{creature['name']}]({creature['url']})\n"
         creature_line += f"HP: {creature['hp']} | EXP: {creature['exp']}\n"
         if creature['img']:
-            creature_line += f"Image: {creature['img']}\n"
+            creature_line += f"{creature['img']}\n"
         lines.append(creature_line)
     else:
         lines.append("🐾 **Boosted Creature:** Not found")
