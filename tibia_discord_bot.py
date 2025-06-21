@@ -61,9 +61,11 @@ def get_rashid_location(soup):
         if portal_div:
             content_div = portal_div.find("div", class_="mp-portal-content")
             if content_div:
-                # Find the city link (it is the first <b><a> after "so you will currently find Rashid in")
+                # Find the city link in the sentence about Rashid's location
                 rashid_span = content_div.find("span")
+                rashid_city, rashid_city_url = None, None
                 if rashid_span:
+                    # Look for <b><a> inside the span
                     bolds = rashid_span.find_all("b")
                     for b in bolds:
                         city_a = b.find("a")
@@ -71,19 +73,21 @@ def get_rashid_location(soup):
                             rashid_city = city_a.get_text(strip=True)
                             rashid_city_url = "https://tibia.fandom.com" + city_a['href']
                             break
-                    else:
-                        rashid_city = None
-                        rashid_city_url = None
-                else:
-                    rashid_city = None
-                    rashid_city_url = None
-                # Find the map link
+                # Get map image thumbnail (the second <img> after Rashid's gif)
+                map_img_tag = None
+                imgs = content_div.find_all("img")
+                if len(imgs) > 1:
+                    # The first is Rashid's face, the second is the minimap
+                    map_img_tag = imgs[1]
+                map_img_url = map_img_tag['src'] if map_img_tag else None
+                # Get map link
                 map_a = content_div.find("a", string="Browse Map")
                 map_url = map_a['href'] if map_a else None
                 return {
                     "city": rashid_city,
                     "city_url": rashid_city_url,
-                    "map_url": map_url
+                    "map_url": map_url,
+                    "map_img": map_img_url
                 }
     return None
 
@@ -114,12 +118,14 @@ def post_to_discord_with_embeds(boss, creature, rashid):
         description = f"Rashid's Location: [{rashid['city']}]({rashid['city_url']})"
         if rashid.get("map_url"):
             description += f" ([Map Link]({rashid['map_url']}))"
+        rashid_embed = {
+            "description": description,
+        }
+        if rashid.get("map_img"):
+            rashid_embed["thumbnail"] = {"url": rashid["map_img"]}
+        embeds.append(rashid_embed)
     else:
-        description = "Rashid's Location: Not found"
-
-    embeds.append({
-        "description": description
-    })
+        embeds.append({"description": "Rashid's Location: Not found"})
 
     payload = {
         "content": "**Tibia Daily Info**",
