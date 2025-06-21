@@ -74,31 +74,33 @@ def get_rashid_location(soup):
 
 def make_discord_message(boss, creature, rashid):
     lines = ["**Tibia Daily Info**"]
+
     if boss:
-        boss_line = f"🧙 **Boosted Boss**: [{boss['name']}]({boss['url']})"
+        boss_line = f"🧙 **Boosted Boss:** [{boss['name']}]({boss['url']})\n"
+        boss_line += f"HP: {boss['hp']} | EXP: {boss['exp']}\n"
         if boss['img']:
-            boss_line += f"\n{boss['img']}"
-        if boss['hp'] and boss['exp']:
-            boss_line += f"\nHP: {boss['hp']} | EXP: {boss['exp']}"
+            boss_line += f"Image: {boss['img']}\n"
         lines.append(boss_line)
     else:
-        lines.append("🧙 **Boosted Boss**: Not found")
+        lines.append("🧙 **Boosted Boss:** Not found")
+
     if creature:
-        creature_line = f"🐾 **Boosted Creature**: [{creature['name']}]({creature['url']})"
+        creature_line = f"🐾 **Boosted Creature:** [{creature['name']}]({creature['url']})\n"
+        creature_line += f"HP: {creature['hp']} | EXP: {creature['exp']}\n"
         if creature['img']:
-            creature_line += f"\n{creature['img']}"
-        if creature['hp'] and creature['exp']:
-            creature_line += f"\nHP: {creature['hp']} | EXP: {creature['exp']}"
+            creature_line += f"Image: {creature['img']}\n"
         lines.append(creature_line)
     else:
-        lines.append("🐾 **Boosted Creature**: Not found")
+        lines.append("🐾 **Boosted Creature:** Not found")
+
     if rashid and rashid['city']:
-        rashid_line = f"🧳 **Rashid's Location**: [{rashid['city']}]({rashid['city_url']})"
+        rashid_line = f"🧳 **Rashid's Location:** [{rashid['city']}]({rashid['city_url']})"
         if rashid['map_url']:
             rashid_line += f" ([Map Link]({rashid['map_url']}))"
         lines.append(rashid_line)
     else:
-        lines.append("🧳 **Rashid's Location**: Not found")
+        lines.append("🧳 **Rashid's Location:** Not found")
+
     return "\n\n".join(lines)
 
 def post_to_discord(message):
