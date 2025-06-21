@@ -91,7 +91,42 @@ def get_rashid_location(soup):
                 }
     return None
 
-def post_to_discord_with_embeds(boss, creature, rashid):
+def get_months_events(soup):
+    events_headline = soup.find("span", id="This_Month.27s_Events")
+    if not events_headline:
+        events_headline = soup.find("span", id="This_Month's_Events")
+    if events_headline:
+        portal_div = events_headline.find_parent("div", class_="mp-portal")
+        if portal_div:
+            content_div = portal_div.find("div", class_="mp-portal-content")
+            if content_div:
+                table = content_div.find("table", class_="full-width")
+                if table:
+                    imgs = table.find_all("img")
+                    images = []
+                    for img in imgs:
+                        # ignore 1x1/none.gif
+                        src = img.get("data-src") or img.get("src")
+                        if src and "None.gif" not in src:
+                            images.append(src)
+                    # Get the main description
+                    desc_td = table.find_all("td")[1] if len(table.find_all("td")) > 1 else None
+                    description = desc_td.get_text(" ", strip=True) if desc_td else ""
+                    # Try to find an extra large event image in the desc_td
+                    event_img = None
+                    if desc_td:
+                        event_img_tag = desc_td.find("img")
+                        if event_img_tag:
+                            event_img = event_img_tag.get("data-src") or event_img_tag.get("src")
+                            if event_img and event_img not in images:
+                                images.append(event_img)
+                    return {
+                        "description": description,
+                        "images": images
+                    }
+    return None
+
+def post_to_discord_with_embeds(boss, creature, rashid, events):
     embeds = []
 
     if boss:
@@ -127,6 +162,23 @@ def post_to_discord_with_embeds(boss, creature, rashid):
     else:
         embeds.append({"description": "Rashid's Location: Not found"})
 
+    if events:
+        events_embed = {
+            "title": "This Month's Events",
+            "description": events["description"],
+        }
+        # Attach up to 4 images as thumbnails (Discord supports one thumbnail per embed, so typically use the first image as thumbnail, others as image fields if needed)
+        if events.get("images"):
+            # The first image as thumbnail, others as big images
+            events_embed["thumbnail"] = {"url": events["images"][0]}
+            if len(events["images"]) > 1:
+                # Discord only allows one image per embed, so add as separate embeds if wanted
+                for img_url in events["images"][1:]:
+                    embeds.append({
+                        "image": {"url": img_url}
+                    })
+        embeds.append(events_embed)
+
     payload = {
         "content": "**Tibia Daily Info**",
         "embeds": embeds,
@@ -148,10 +200,12 @@ def main():
     boss = get_boosted_boss(soup)
     creature = get_boosted_creature(soup)
     rashid = get_rashid_location(soup)
+    events = get_months_events(soup)
     print("Boss:", boss)
     print("Creature:", creature)
     print("Rashid:", rashid)
-    post_to_discord_with_embeds(boss, creature, rashid)
+    print("Events:", events)
+    post_to_discord_with_embeds(boss, creature, rashid, events)
 
 if __name__ == "__main__":
     main()
