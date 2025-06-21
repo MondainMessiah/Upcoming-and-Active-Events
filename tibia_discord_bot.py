@@ -16,7 +16,6 @@ def get_boosted_boss(soup):
             boss_img_tag = box.find("img", alt=boss_name)
             boss_img_url = None
             if boss_img_tag:
-                # Prefer data-src if available, otherwise fallback to src
                 boss_img_url = boss_img_tag.get("data-src") or boss_img_tag.get("src")
             hp_tag = box.find("span", class_="creature-stats-hp")
             exp_tag = box.find("span", class_="creature-stats-exp")
@@ -41,7 +40,6 @@ def get_boosted_creature(soup):
             img_tag = box.find("img", alt=creature_name)
             creature_img_url = None
             if img_tag:
-                # Prefer data-src if available, otherwise fallback to src
                 creature_img_url = img_tag.get("data-src") or img_tag.get("src")
             hp_tag = box.find("span", class_="creature-stats-hp")
             exp_tag = box.find("span", class_="creature-stats-exp")
@@ -78,42 +76,47 @@ def get_rashid_location(soup):
             }
     return None
 
-def make_discord_message(boss, creature, rashid):
-    lines = ["**Tibia Daily Info**"]
+def post_to_discord_with_embeds(boss, creature, rashid):
+    embeds = []
 
     if boss:
-        boss_line = f"🧙 **Boosted Boss:** [{boss['name']}]({boss['url']})\n"
-        boss_line += f"HP: {boss['hp']} | EXP: {boss['exp']}\n"
-        if boss['img']:
-            boss_line += f"{boss['img']}\n"  # Image URL on its own line for Discord preview
-        lines.append(boss_line)
-    else:
-        lines.append("🧙 **Boosted Boss:** Not found")
+        boss_embed = {
+            "title": f"Boosted Boss: {boss['name']}",
+            "url": boss["url"],
+            "description": f"HP: {boss['hp']} | EXP: {boss['exp']}",
+        }
+        if boss["img"]:
+            boss_embed["thumbnail"] = {"url": boss["img"]}
+        embeds.append(boss_embed)
 
     if creature:
-        creature_line = f"🐾 **Boosted Creature:** [{creature['name']}]({creature['url']})\n"
-        creature_line += f"HP: {creature['hp']} | EXP: {creature['exp']}\n"
-        if creature['img']:
-            creature_line += f"{creature['img']}\n"
-        lines.append(creature_line)
+        creature_embed = {
+            "title": f"Boosted Creature: {creature['name']}",
+            "url": creature["url"],
+            "description": f"HP: {creature['hp']} | EXP: {creature['exp']}",
+        }
+        if creature["img"]:
+            creature_embed["thumbnail"] = {"url": creature["img"]}
+        embeds.append(creature_embed)
+
+    if rashid and rashid.get("city"):
+        description = f"Rashid's Location: [{rashid['city']}]({rashid['city_url']})"
+        if rashid.get("map_url"):
+            description += f" ([Map Link]({rashid['map_url']}))"
     else:
-        lines.append("🐾 **Boosted Creature:** Not found")
+        description = "Rashid's Location: Not found"
 
-    if rashid and rashid['city']:
-        rashid_line = f"🧳 **Rashid's Location:** [{rashid['city']}]({rashid['city_url']})"
-        if rashid['map_url']:
-            rashid_line += f" ([Map Link]({rashid['map_url']}))"
-        lines.append(rashid_line)
-    else:
-        lines.append("🧳 **Rashid's Location:** Not found")
+    # Add Rashid info as a separate embed
+    embeds.append({
+        "description": description
+    })
 
-    return "\n\n".join(lines)
-
-def post_to_discord(message):
     payload = {
-        "content": message,
+        "content": "**Tibia Daily Info**",
+        "embeds": embeds,
         "allowed_mentions": {"parse": []}
     }
+
     resp = requests.post(DISCORD_WEBHOOK_URL, json=payload)
     if resp.status_code in [200, 204]:
         print("Posted to Discord successfully!")
@@ -132,8 +135,7 @@ def main():
     print("Boss:", boss)
     print("Creature:", creature)
     print("Rashid:", rashid)
-    message = make_discord_message(boss, creature, rashid)
-    post_to_discord(message)
+    post_to_discord_with_embeds(boss, creature, rashid)
 
 if __name__ == "__main__":
     main()
