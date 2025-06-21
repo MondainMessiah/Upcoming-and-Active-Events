@@ -14,7 +14,10 @@ def get_boosted_boss(soup):
             boss_name = boss_link.get_text(strip=True)
             boss_url = "https://tibia.fandom.com" + boss_link['href']
             boss_img_tag = box.find("img", alt=boss_name)
-            boss_img_url = boss_img_tag['src'] if boss_img_tag else None
+            boss_img_url = None
+            if boss_img_tag:
+                # Prefer data-src if available, otherwise fallback to src
+                boss_img_url = boss_img_tag.get("data-src") or boss_img_tag.get("src")
             hp_tag = box.find("span", class_="creature-stats-hp")
             exp_tag = box.find("span", class_="creature-stats-exp")
             hp = hp_tag.get_text(strip=True) if hp_tag else None
@@ -36,7 +39,10 @@ def get_boosted_creature(soup):
             creature_name = name_link.get_text(strip=True)
             creature_url = "https://tibia.fandom.com" + name_link['href']
             img_tag = box.find("img", alt=creature_name)
-            creature_img_url = img_tag['src'] if img_tag else None
+            creature_img_url = None
+            if img_tag:
+                # Prefer data-src if available, otherwise fallback to src
+                creature_img_url = img_tag.get("data-src") or img_tag.get("src")
             hp_tag = box.find("span", class_="creature-stats-hp")
             exp_tag = box.find("span", class_="creature-stats-exp")
             hp = hp_tag.get_text(strip=True) if hp_tag else None
