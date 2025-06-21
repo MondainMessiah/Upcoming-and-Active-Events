@@ -60,20 +60,31 @@ def get_rashid_location(soup):
         portal_div = rashid_headline.find_parent("div", class_="mp-portal")
         if portal_div:
             content_div = portal_div.find("div", class_="mp-portal-content")
-            city_bold = content_div.find("b")
-            rashid_city = None
-            rashid_city_url = None
-            if city_bold and city_bold.find("a"):
-                city_a = city_bold.find("a")
-                rashid_city = city_a.get_text(strip=True)
-                rashid_city_url = "https://tibia.fandom.com" + city_a['href']
-            map_link = content_div.find("a", string="Browse Map")
-            map_url = map_link['href'] if map_link else None
-            return {
-                "city": rashid_city,
-                "city_url": rashid_city_url,
-                "map_url": map_url
-            }
+            if content_div:
+                # Find the city link (it is the first <b><a> after "so you will currently find Rashid in")
+                rashid_span = content_div.find("span")
+                if rashid_span:
+                    bolds = rashid_span.find_all("b")
+                    for b in bolds:
+                        city_a = b.find("a")
+                        if city_a and city_a.get("href", "").startswith("/wiki/"):
+                            rashid_city = city_a.get_text(strip=True)
+                            rashid_city_url = "https://tibia.fandom.com" + city_a['href']
+                            break
+                    else:
+                        rashid_city = None
+                        rashid_city_url = None
+                else:
+                    rashid_city = None
+                    rashid_city_url = None
+                # Find the map link
+                map_a = content_div.find("a", string="Browse Map")
+                map_url = map_a['href'] if map_a else None
+                return {
+                    "city": rashid_city,
+                    "city_url": rashid_city_url,
+                    "map_url": map_url
+                }
     return None
 
 def post_to_discord_with_embeds(boss, creature, rashid):
@@ -106,7 +117,6 @@ def post_to_discord_with_embeds(boss, creature, rashid):
     else:
         description = "Rashid's Location: Not found"
 
-    # Add Rashid info as a separate embed
     embeds.append({
         "description": description
     })
