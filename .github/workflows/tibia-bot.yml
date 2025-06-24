@@ -2,8 +2,8 @@ name: Tibia Discord Bot
 
 on:
   schedule:
-  - cron: '30 8 * * *'   # 09:30 UK time in summer (BST)
-  - cron: '30 9 * * *'   # 09:30 UK time in winter (GMT)
+    # 11:00 UK time during British Summer Time (BST) == 10:00 UTC
+    - cron: '0 10 * * *'   # 11:00 UK time, only matches correctly during BST (summer)
   workflow_dispatch:
 
 jobs:
