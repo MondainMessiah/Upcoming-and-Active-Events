@@ -1,9 +1,8 @@
-# .github/workflows/main.yml
 name: Post Tibia Events to Discord
 
 on:
   schedule:
-    # Runs daily at 8:30 AM UTC (which is 9:30 AM in the UK)
+    # Runs daily at 8:30 AM UTC (9:30 AM UK time)
     - cron: '30 8 * * *'
   # Allows you to run this workflow manually from the Actions tab
   workflow_dispatch:
@@ -24,7 +23,7 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install requests
+          pip install -r requirements.txt
 
       - name: Run the script
         env:
