@@ -21,12 +21,10 @@ def scrape_tibia_events():
             print(f"Navigating to {EVENTS_PAGE_URL}...")
             page.goto(EVENTS_PAGE_URL)
 
-            # NEW: Wait for the event sections to be loaded by JavaScript
             print("Waiting for event content to load...")
             page.wait_for_selector("#happening-now, #upcoming-events", timeout=15000)
             print("Event content found.")
 
-            # Scrape "Happening Now" events
             happening_now_section = page.query_selector("#happening-now")
             if happening_now_section:
                 events = happening_now_section.query_selector_all(".event-entry")
@@ -35,7 +33,6 @@ def scrape_tibia_events():
                     name = event.query_selector("h4").inner_text()
                     current_events.append({"name": name, "detail": "Active Now"})
 
-            # Scrape "Upcoming Events"
             upcoming_events_section = page.query_selector("#upcoming-events")
             if upcoming_events_section:
                 events = upcoming_events_section.query_selector_all(".event-entry")
@@ -46,7 +43,10 @@ def scrape_tibia_events():
                     upcoming_events.append({"name": name, "detail": countdown})
 
         except TimeoutError:
-            print("Timed out waiting for event content to load. The page might be empty or changed.")
+            print("Timed out waiting for event content. Taking a screenshot for debugging...")
+            # --- NEW LINE ---
+            page.screenshot(path="debug_screenshot.png")
+            
         except Exception as e:
             print(f"An error occurred during scraping: {e}")
         finally:
@@ -56,32 +56,19 @@ def scrape_tibia_events():
     return current_events, upcoming_events
 
 def format_discord_message(current_events, upcoming_events):
-    """Formats the scraped event data into a Discord embed message."""
+    # This function remains the same
     def format_list(events_list, default_text):
         if not events_list:
             return default_text
         return "\n".join([f"**{event['name']}** ({event['detail']})" for event in events_list])
-
     current_events_text = format_list(current_events, "There are no events happening right now.")
     upcoming_events_text = format_list(upcoming_events, "There are no upcoming events scheduled.")
-
-    fields = [
-        {"name": "🔴 Happening Now", "value": current_events_text, "inline": False},
-        {"name": "⏳ Upcoming Events", "value": upcoming_events_text, "inline": False}
-    ]
-    message = {
-        "embeds": [{
-            "title": "Tibia Event Schedule (Scraped)",
-            "description": "Daily event report scraped directly from TibiaDraptor.com.",
-            "color": 2123412,  # Green
-            "fields": fields,
-            "footer": {"text": f"Report generated on {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"}
-        }]
-    }
+    fields = [{"name": "🔴 Happening Now", "value": current_events_text, "inline": False}, {"name": "⏳ Upcoming Events", "value": upcoming_events_text, "inline": False}]
+    message = {"embeds": [{"title": "Tibia Event Schedule (Scraped)", "description": "Daily event report scraped directly from TibiaDraptor.com.", "color": 2123412, "fields": fields, "footer": {"text": f"Report generated on {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"}}]}
     return message
 
 def post_to_discord(webhook_url, message):
-    """Posts the formatted message to the Discord webhook."""
+    # This function remains the same
     try:
         response = requests.post(webhook_url, json=message)
         response.raise_for_status()
@@ -92,9 +79,7 @@ def post_to_discord(webhook_url, message):
 if __name__ == "__main__":
     if not DISCORD_WEBHOOK_URL:
         raise ValueError("FATAL: DISCORD_WEBHOOK_URL environment variable not set.")
-
     current, upcoming = scrape_tibia_events()
-
     if not current and not upcoming:
         print("No events found on the webpage. No message will be sent.")
     else:
