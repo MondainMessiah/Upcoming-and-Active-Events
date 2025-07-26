@@ -4,103 +4,103 @@ import datetime
 
 # --- Configuration ---
 DISCORD_WEBHOOK_URL = os.environ.get("DISCORD_WEBHOOK_URL")
-TIBIADRAPTOR_EVENTS_API_URL = "https://api.tibiadraptor.com/v2/events/all"
+EVENTS_API_URL = "https://api.tibiadraptor.com/v2/events/all"
+NEWS_API_URL = "https://api.tibiadraptor.com/v2/news/latest"
+NEWS_CATEGORIES_TO_CHECK = ["event", "upcoming feature"]
 
-def get_tibia_events():
-    """Fetches current and upcoming events from the TibiaDraptor API."""
+def fetch_api_data(url):
+    """Fetches data from a given API endpoint."""
     try:
-        response = requests.get(TIBIADRAPTOR_EVENTS_API_URL)
+        response = requests.get(url)
         response.raise_for_status()
         return response.json()
     except requests.exceptions.RequestException as e:
-        print(f"Error fetching event data from TibiaDraptor: {e}")
+        print(f"Error fetching data from {url}: {e}")
         return None
 
-def format_event_field(events, event_type):
-    """Formats a list of events into a single string for a Discord field."""
-    if not events:
-        return f"There are no {event_type} events right now."
-    events.sort(key=lambda x: x.get('start_date', ''))
-    formatted_list = [
-        f"**{event.get('name', 'Unknown Event')}** (ends {event.get('end_date', 'N/A')})"
-        for event in events
-    ]
-    return "\n".join(formatted_list)
+def format_discord_message(current_events, upcoming_events):
+    """Formats the combined event data into a Discord embed message."""
+    
+    # Helper to format a list of events into a text block
+    def format_list(events_list, default_text):
+        if not events_list:
+            return default_text
+        return "\n".join([f"**{event['name']}** ({event['detail']})" for event in events_list])
 
-def format_upcoming_event_field(events):
-    """Formats upcoming events, including the start date."""
-    if not events:
-        return "There are no upcoming events scheduled."
-    events.sort(key=lambda x: x.get('start_date', ''))
-    formatted_list = [
-        f"**{event.get('name', 'Unknown Event')}** (starts {event.get('start_date', 'N/A')})"
-        for event in events
-    ]
-    return "\n".join(formatted_list)
-
-def format_discord_message(events_data):
-    """Formats the event data into a Discord embed message."""
-    current_events = events_data.get("events", {}).get("current", [])
-    upcoming_events = events_data.get("events", {}).get("upcoming", [])
+    current_events_text = format_list(current_events, "There are no events happening right now.")
+    upcoming_events_text = format_list(upcoming_events, "There are no upcoming events scheduled.")
 
     fields = [
-        {
-            "name": "🔴 Happening Now",
-            "value": format_event_field(current_events, "current"),
-            "inline": False
-        },
-        {
-            "name": "⏳ Upcoming Events",
-            "value": format_upcoming_event_field(upcoming_events),
-            "inline": False
-        }
+        {"name": "🔴 Happening Now", "value": current_events_text, "inline": False},
+        {"name": "⏳ Upcoming Events", "value": upcoming_events_text, "inline": False}
     ]
 
     message = {
         "embeds": [{
-            "title": "Tibia Event Schedule",
-            "description": "Here is the current and upcoming event schedule from TibiaDraptor.",
-            "color": 5814783,
+            "title": "Tibia Event & News Schedule",
+            "description": "Combined daily report from TibiaDraptor's events and news sections.",
+            "color": 3447003,  # A nice blue color
             "fields": fields,
-            "footer": {
-                "text": f"Report generated on {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
-            }
+            "footer": {"text": f"Report generated on {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"}
         }]
     }
     return message
 
 def post_to_discord(webhook_url, message):
     """Posts the formatted message to the Discord webhook."""
-    if not message:
-        print("No message to post.")
-        return
     try:
         response = requests.post(webhook_url, json=message)
         response.raise_for_status()
-        print("Successfully posted event schedule to Discord.")
+        print("Successfully posted combined event schedule to Discord.")
     except requests.exceptions.RequestException as e:
         print(f"Error posting to Discord: {e}")
-        print(f"Response Body: {e.response.text if e.response else 'No Response'}")
 
 # --- Main Execution Block ---
 if __name__ == "__main__":
     if not DISCORD_WEBHOOK_URL:
         raise ValueError("FATAL: DISCORD_WEBHOOK_URL environment variable not set.")
 
-    print("Fetching Tibia event schedule...")
-    events_json = get_tibia_events()
+    all_current_events = []
+    all_upcoming_events = []
+    seen_titles = set()
 
-    if events_json and "events" in events_json:
-        current_events = events_json["events"].get("current", [])
-        upcoming_events = events_json["events"].get("upcoming", [])
+    # 1. Fetch from the primary Events API
+    print("Fetching from Events API...")
+    events_data = fetch_api_data(EVENTS_API_URL)
+    if events_data and "events" in events_data:
+        current = events_data["events"].get("current", [])
+        for event in current:
+            title = event.get("name")
+            if title and title not in seen_titles:
+                all_current_events.append({"name": title, "detail": f"ends {event.get('end_date', 'N/A')}"})
+                seen_titles.add(title)
+        
+        upcoming = events_data["events"].get("upcoming", [])
+        for event in upcoming:
+            title = event.get("name")
+            if title and title not in seen_titles:
+                all_upcoming_events.append({"name": title, "detail": f"starts {event.get('start_date', 'N/A')}"})
+                seen_titles.add(title)
 
-        # --- MODIFICATION ---
-        # Only proceed if there is at least one current or upcoming event
-        if not current_events and not upcoming_events:
-            print("No current or upcoming events found. No message will be sent.")
-        else:
-            print("Events found. Formatting and sending message...")
-            discord_message = format_discord_message(events_json)
-            post_to_discord(DISCORD_WEBHOOK_URL, discord_message)
+    # 2. Fetch from the News API as a fallback/supplement
+    print("Fetching from News API...")
+    news_data = fetch_api_data(NEWS_API_URL)
+    if news_data and "news" in news_data:
+        for news_item in news_data["news"]:
+            title = news_item.get("title")
+            category = news_item.get("category", "").lower()
+            if title and title not in seen_titles and category in NEWS_CATEGORIES_TO_CHECK:
+                # Add news items to the 'upcoming' list
+                all_upcoming_events.append({"name": title, "detail": f"[Link]({news_item.get('url')})"})
+                seen_titles.add(title)
+
+    # 3. Check if we found anything from ANY source
+    if not all_current_events and not all_upcoming_events:
+        print("No current or upcoming events found from any source. No message will be sent.")
     else:
-        print("Could not retrieve or parse events from the API.")
+        print(f"Found {len(all_current_events)} current and {len(all_upcoming_events)} upcoming events/news items. Sending message...")
+        # Sort upcoming events by name for consistency
+        all_upcoming_events.sort(key=lambda x: x['name'])
+        discord_message = format_discord_message(all_current_events, all_upcoming_events)
+        post_to_discord(DISCORD_WEBHOOK_URL, discord_message)
+
