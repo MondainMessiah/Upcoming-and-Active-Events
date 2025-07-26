@@ -1,7 +1,7 @@
 import os
 import requests
 import datetime
-from playwright.sync_api import sync_playwright
+from playwright.sync_api import sync_playwright, TimeoutError
 
 # --- Configuration ---
 DISCORD_WEBHOOK_URL = os.environ.get("DISCORD_WEBHOOK_URL")
@@ -19,27 +19,34 @@ def scrape_tibia_events():
         
         try:
             print(f"Navigating to {EVENTS_PAGE_URL}...")
-            page.goto(EVENTS_PAGE_URL, wait_until="domcontentloaded")
+            page.goto(EVENTS_PAGE_URL)
+
+            # NEW: Wait for the event sections to be loaded by JavaScript
+            print("Waiting for event content to load...")
+            page.wait_for_selector("#happening-now, #upcoming-events", timeout=15000)
+            print("Event content found.")
 
             # Scrape "Happening Now" events
-            print("Scraping 'Happening Now' events...")
             happening_now_section = page.query_selector("#happening-now")
             if happening_now_section:
                 events = happening_now_section.query_selector_all(".event-entry")
+                print(f"Found {len(events)} 'Happening Now' elements.")
                 for event in events:
                     name = event.query_selector("h4").inner_text()
                     current_events.append({"name": name, "detail": "Active Now"})
 
             # Scrape "Upcoming Events"
-            print("Scraping 'Upcoming Events'...")
             upcoming_events_section = page.query_selector("#upcoming-events")
             if upcoming_events_section:
                 events = upcoming_events_section.query_selector_all(".event-entry")
+                print(f"Found {len(events)} 'Upcoming' elements.")
                 for event in events:
                     name = event.query_selector("h4").inner_text()
                     countdown = event.query_selector(".text-bright").inner_text()
                     upcoming_events.append({"name": name, "detail": countdown})
 
+        except TimeoutError:
+            print("Timed out waiting for event content to load. The page might be empty or changed.")
         except Exception as e:
             print(f"An error occurred during scraping: {e}")
         finally:
