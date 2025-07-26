@@ -2,9 +2,7 @@ name: Post Tibia Events to Discord
 
 on:
   schedule:
-    # Runs daily at 8:30 AM UTC (9:30 AM UK time)
     - cron: '30 8 * * *'
-  # Allows you to run this workflow manually from the Actions tab
   workflow_dispatch:
 
 jobs:
@@ -24,9 +22,18 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
-          playwright install --with-deps chromium  # This is the crucial missing line
+          playwright install --with-deps chromium
 
       - name: Run the script
         env:
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
-        run: python events.py # Using your new filename
+        run: python events.py
+
+      # --- NEW STEP ---
+      - name: Upload Debug Screenshot
+        if: always() # This step will always run
+        uses: actions/upload-artifact@v4
+        with:
+          name: debug-screenshot
+          path: debug_screenshot.png
+          if-no-files-found: ignore # Don't fail if the screenshot doesn't exist
