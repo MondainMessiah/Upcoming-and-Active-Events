@@ -5,7 +5,8 @@ from playwright.sync_api import sync_playwright, TimeoutError
 
 # --- Configuration ---
 DISCORD_WEBHOOK_URL = os.environ.get("DISCORD_WEBHOOK_URL")
-EVENTS_PAGE_URL = "https://www.tibiadraptor.com/events"
+# The only line that has been changed is this one:
+EVENTS_PAGE_URL = "https://tibiadraptor.com/"
 
 def scrape_tibia_events():
     """Launches a browser to scrape event data directly from the website."""
@@ -44,7 +45,6 @@ def scrape_tibia_events():
 
         except TimeoutError:
             print("Timed out waiting for event content. Taking a screenshot for debugging...")
-            # --- NEW LINE ---
             page.screenshot(path="debug_screenshot.png")
             
         except Exception as e:
@@ -56,19 +56,32 @@ def scrape_tibia_events():
     return current_events, upcoming_events
 
 def format_discord_message(current_events, upcoming_events):
-    # This function remains the same
+    """Formats the scraped event data into a Discord embed message."""
     def format_list(events_list, default_text):
         if not events_list:
             return default_text
         return "\n".join([f"**{event['name']}** ({event['detail']})" for event in events_list])
+
     current_events_text = format_list(current_events, "There are no events happening right now.")
     upcoming_events_text = format_list(upcoming_events, "There are no upcoming events scheduled.")
-    fields = [{"name": "🔴 Happening Now", "value": current_events_text, "inline": False}, {"name": "⏳ Upcoming Events", "value": upcoming_events_text, "inline": False}]
-    message = {"embeds": [{"title": "Tibia Event Schedule (Scraped)", "description": "Daily event report scraped directly from TibiaDraptor.com.", "color": 2123412, "fields": fields, "footer": {"text": f"Report generated on {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"}}]}
+
+    fields = [
+        {"name": "🔴 Happening Now", "value": current_events_text, "inline": False},
+        {"name": "⏳ Upcoming Events", "value": upcoming_events_text, "inline": False}
+    ]
+    message = {
+        "embeds": [{
+            "title": "Tibia Event Schedule (Scraped)",
+            "description": "Daily event report scraped directly from TibiaDraptor.com.",
+            "color": 2123412,  # Green
+            "fields": fields,
+            "footer": {"text": f"Report generated on {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"}
+        }]
+    }
     return message
 
 def post_to_discord(webhook_url, message):
-    # This function remains the same
+    """Posts the formatted message to the Discord webhook."""
     try:
         response = requests.post(webhook_url, json=message)
         response.raise_for_status()
@@ -79,7 +92,9 @@ def post_to_discord(webhook_url, message):
 if __name__ == "__main__":
     if not DISCORD_WEBHOOK_URL:
         raise ValueError("FATAL: DISCORD_WEBHOOK_URL environment variable not set.")
+
     current, upcoming = scrape_tibia_events()
+
     if not current and not upcoming:
         print("No events found on the webpage. No message will be sent.")
     else:
