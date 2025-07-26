@@ -11,7 +11,11 @@ NEWS_CATEGORIES_TO_CHECK = ["event", "upcoming feature"]
 def fetch_api_data(url):
     """Fetches data from a given API endpoint."""
     try:
-        response = requests.get(url)
+        # WARNING: The 'verify=False' argument is an insecure workaround
+        # for a server-side SSL certificate error on the TibiaDraptor API.
+        # This should be removed once the API provider fixes their certificate.
+        response = requests.get(url, verify=False)
+        
         response.raise_for_status()
         return response.json()
     except requests.exceptions.RequestException as e:
