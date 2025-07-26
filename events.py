@@ -21,7 +21,6 @@ def fetch_api_data(url):
 def format_discord_message(current_events, upcoming_events):
     """Formats the combined event data into a Discord embed message."""
     
-    # Helper to format a list of events into a text block
     def format_list(events_list, default_text):
         if not events_list:
             return default_text
@@ -39,7 +38,7 @@ def format_discord_message(current_events, upcoming_events):
         "embeds": [{
             "title": "Tibia Event & News Schedule",
             "description": "Combined daily report from TibiaDraptor's events and news sections.",
-            "color": 3447003,  # A nice blue color
+            "color": 3447003,  # Blue
             "fields": fields,
             "footer": {"text": f"Report generated on {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"}
         }]
@@ -55,7 +54,6 @@ def post_to_discord(webhook_url, message):
     except requests.exceptions.RequestException as e:
         print(f"Error posting to Discord: {e}")
 
-# --- Main Execution Block ---
 if __name__ == "__main__":
     if not DISCORD_WEBHOOK_URL:
         raise ValueError("FATAL: DISCORD_WEBHOOK_URL environment variable not set.")
@@ -64,25 +62,21 @@ if __name__ == "__main__":
     all_upcoming_events = []
     seen_titles = set()
 
-    # 1. Fetch from the primary Events API
     print("Fetching from Events API...")
     events_data = fetch_api_data(EVENTS_API_URL)
     if events_data and "events" in events_data:
-        current = events_data["events"].get("current", [])
-        for event in current:
+        for event in events_data["events"].get("current", []):
             title = event.get("name")
             if title and title not in seen_titles:
                 all_current_events.append({"name": title, "detail": f"ends {event.get('end_date', 'N/A')}"})
                 seen_titles.add(title)
         
-        upcoming = events_data["events"].get("upcoming", [])
-        for event in upcoming:
+        for event in events_data["events"].get("upcoming", []):
             title = event.get("name")
             if title and title not in seen_titles:
                 all_upcoming_events.append({"name": title, "detail": f"starts {event.get('start_date', 'N/A')}"})
                 seen_titles.add(title)
 
-    # 2. Fetch from the News API as a fallback/supplement
     print("Fetching from News API...")
     news_data = fetch_api_data(NEWS_API_URL)
     if news_data and "news" in news_data:
@@ -90,17 +84,13 @@ if __name__ == "__main__":
             title = news_item.get("title")
             category = news_item.get("category", "").lower()
             if title and title not in seen_titles and category in NEWS_CATEGORIES_TO_CHECK:
-                # Add news items to the 'upcoming' list
                 all_upcoming_events.append({"name": title, "detail": f"[Link]({news_item.get('url')})"})
                 seen_titles.add(title)
 
-    # 3. Check if we found anything from ANY source
     if not all_current_events and not all_upcoming_events:
         print("No current or upcoming events found from any source. No message will be sent.")
     else:
         print(f"Found {len(all_current_events)} current and {len(all_upcoming_events)} upcoming events/news items. Sending message...")
-        # Sort upcoming events by name for consistency
         all_upcoming_events.sort(key=lambda x: x['name'])
         discord_message = format_discord_message(all_current_events, all_upcoming_events)
         post_to_discord(DISCORD_WEBHOOK_URL, discord_message)
-
