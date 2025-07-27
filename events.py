@@ -9,13 +9,16 @@ DISCORD_WEBHOOK_URL = os.environ.get("DISCORD_WEBHOOK_URL")
 EVENTS_PAGE_URL = "https://tibiadraptor.com/"
 
 def get_tibiawiki_url(event_name):
-    """Checks for a TibiaWiki page, trying the /Spoiler URL first."""
+    """Checks for a TibiaWiki page, trying both a base and a /Spoiler URL."""
+    
+    # --- NEW: Convert event name to Title Case to match wiki URL format ---
+    event_name_title_case = event_name.title()
+    
     base_url = "https://tibia.fandom.com/wiki/"
     # Remove special characters and replace spaces with underscores for the URL
-    safe_name = re.sub(r"[^\w\s]", "", event_name)
+    safe_name = re.sub(r"[^\w\s]", "", event_name_title_case)
     safe_name = safe_name.replace(" ", "_")
     
-    # --- NEW LOGIC ---
     # List of URLs to check, with the /Spoiler version first.
     urls_to_try = [
         base_url + safe_name + "/Spoiler",
@@ -24,14 +27,11 @@ def get_tibiawiki_url(event_name):
     
     for url in urls_to_try:
         try:
-            # Use a HEAD request for efficiency
             resp = requests.head(url, allow_redirects=True, timeout=5)
-            # If the request is successful, return the final URL after redirects
             if resp.status_code == 200:
                 print(f"Found valid wiki link: {resp.url}")
                 return resp.url
         except requests.exceptions.RequestException:
-            # Ignore connection errors, timeouts, etc., and try the next URL
             continue
             
     print(f"No valid wiki link found for {event_name}.")
@@ -98,7 +98,6 @@ def format_discord_message(current_events, upcoming_events):
         formatted_events = []
         for event in events_list:
             wiki_url = get_tibiawiki_url(event['name'])
-            # Create a clickable link if a wiki URL was found
             if wiki_url:
                 display_name = f"[{event['name']}]({wiki_url})"
             else:
