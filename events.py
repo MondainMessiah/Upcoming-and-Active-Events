@@ -9,20 +9,32 @@ DISCORD_WEBHOOK_URL = os.environ.get("DISCORD_WEBHOOK_URL")
 EVENTS_PAGE_URL = "https://tibiadraptor.com/"
 
 def get_tibiawiki_url(event_name):
-    """Returns TibiaWiki URL if the page exists, else None."""
+    """Checks for a TibiaWiki page, trying the /Spoiler URL first."""
     base_url = "https://tibia.fandom.com/wiki/"
     # Remove special characters and replace spaces with underscores for the URL
     safe_name = re.sub(r"[^\w\s]", "", event_name)
     safe_name = safe_name.replace(" ", "_")
-    url = base_url + safe_name
-    try:
-        # Use a HEAD request for efficiency, as we only need the status code
-        resp = requests.head(url, allow_redirects=True, timeout=5)
-        if resp.status_code == 200:
-            return url
-    except requests.exceptions.RequestException:
-        # Ignore connection errors, timeouts, etc.
-        pass
+    
+    # --- NEW LOGIC ---
+    # List of URLs to check, with the /Spoiler version first.
+    urls_to_try = [
+        base_url + safe_name + "/Spoiler",
+        base_url + safe_name
+    ]
+    
+    for url in urls_to_try:
+        try:
+            # Use a HEAD request for efficiency
+            resp = requests.head(url, allow_redirects=True, timeout=5)
+            # If the request is successful, return the final URL after redirects
+            if resp.status_code == 200:
+                print(f"Found valid wiki link: {resp.url}")
+                return resp.url
+        except requests.exceptions.RequestException:
+            # Ignore connection errors, timeouts, etc., and try the next URL
+            continue
+            
+    print(f"No valid wiki link found for {event_name}.")
     return None
 
 def scrape_tibia_events():
@@ -85,7 +97,6 @@ def format_discord_message(current_events, upcoming_events):
         
         formatted_events = []
         for event in events_list:
-            print(f"Checking for wiki page for: {event['name']}")
             wiki_url = get_tibiawiki_url(event['name'])
             # Create a clickable link if a wiki URL was found
             if wiki_url:
