@@ -5,7 +5,6 @@ from playwright.sync_api import sync_playwright, TimeoutError
 
 # --- Configuration ---
 DISCORD_WEBHOOK_URL = os.environ.get("DISCORD_WEBHOOK_URL")
-# The only line that has been changed is this one:
 EVENTS_PAGE_URL = "https://tibiadraptor.com/"
 
 def scrape_tibia_events():
@@ -22,8 +21,9 @@ def scrape_tibia_events():
             print(f"Navigating to {EVENTS_PAGE_URL}...")
             page.goto(EVENTS_PAGE_URL)
 
+            # The only change is increasing the timeout from 15000 to 30000
             print("Waiting for event content to load...")
-            page.wait_for_selector("#happening-now, #upcoming-events", timeout=15000)
+            page.wait_for_selector("#happening-now, #upcoming-events", timeout=30000)
             print("Event content found.")
 
             happening_now_section = page.query_selector("#happening-now")
