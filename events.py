@@ -68,7 +68,7 @@ def format_discord_message(current_events, upcoming_events):
         return "\n".join([f"**{event['name']}** ({event['detail']})" for event in events_list])
     current_events_text = format_list(current_events, "There are no events happening right now.")
     upcoming_events_text = format_list(upcoming_events, "There are no upcoming events scheduled.")
-    fields = [{"name": "🔴 Happening Now", "value": current_events_text, "inline": False}, {"name": "⏳ Upcoming Events", "value": upcoming_events_text, "inline": False}]
+    fields = [{"name": "✅ Happening Now", "value": current_events_text, "inline": False}, {"name": "⏳ Upcoming Events", "value": upcoming_events_text, "inline": False}]
     message = {"embeds": [{"title": "Tibia Event Schedule", "fields": fields, "footer": {"text": f"Report generated on {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"}}]}
     return message
 
