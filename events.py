@@ -21,9 +21,9 @@ def scrape_tibia_events():
             print(f"Navigating to {EVENTS_PAGE_URL}...")
             page.goto(EVENTS_PAGE_URL)
 
-            # The only change is increasing the timeout from 15000 to 30000
-            print("Waiting for event content to load...")
-            page.wait_for_selector("#happening-now, #upcoming-events", timeout=30000)
+            # NEW STRATEGY: Wait for the visible text "Upcoming Events" to appear.
+            print("Waiting for the text 'Upcoming Events' to appear...")
+            page.wait_for_selector("text=Upcoming Events", timeout=60000)
             print("Event content found.")
 
             happening_now_section = page.query_selector("#happening-now")
@@ -73,7 +73,7 @@ def format_discord_message(current_events, upcoming_events):
         "embeds": [{
             "title": "Tibia Event Schedule (Scraped)",
             "description": "Daily event report scraped directly from TibiaDraptor.com.",
-            "color": 2123412,  # Green
+            "color": 2123412,
             "fields": fields,
             "footer": {"text": f"Report generated on {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"}
         }]
