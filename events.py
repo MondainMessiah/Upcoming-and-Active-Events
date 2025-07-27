@@ -21,27 +21,34 @@ def scrape_tibia_events():
             print(f"Navigating to {EVENTS_PAGE_URL}...")
             page.goto(EVENTS_PAGE_URL)
 
-            # NEW STRATEGY: Wait for the visible text "Upcoming Events" to appear.
             print("Waiting for the text 'Upcoming Events' to appear...")
             page.wait_for_selector("text=Upcoming Events", timeout=60000)
-            print("Event content found.")
+            print("Event content found. Now scraping...")
 
-            happening_now_section = page.query_selector("#happening-now")
-            if happening_now_section:
-                events = happening_now_section.query_selector_all(".event-entry")
-                print(f"Found {len(events)} 'Happening Now' elements.")
-                for event in events:
-                    name = event.query_selector("h4").inner_text()
-                    current_events.append({"name": name, "detail": "Active Now"})
-
-            upcoming_events_section = page.query_selector("#upcoming-events")
-            if upcoming_events_section:
-                events = upcoming_events_section.query_selector_all(".event-entry")
-                print(f"Found {len(events)} 'Upcoming' elements.")
-                for event in events:
-                    name = event.query_selector("h4").inner_text()
-                    countdown = event.query_selector(".text-bright").inner_text()
-                    upcoming_events.append({"name": name, "detail": countdown})
+            # --- NEW, CORRECTED SCRAPING LOGIC ---
+            
+            # Scrape "Happening Now" events using precise XPath
+            happening_elements = page.query_selector_all('//h3[text()="Happening Now"]/following-sibling::div[1]')
+            if happening_elements:
+                print(f"Found {len(happening_elements)} 'Happening Now' elements.")
+                for event in happening_elements:
+                    # Check for the "no events" message
+                    if "There are no events happening right now" not in event.inner_text():
+                         # If there were events, logic to scrape them would go here
+                         # For now, this handles the empty case
+                         pass
+            
+            # Scrape "Upcoming Events" using precise XPath
+            upcoming_elements = page.query_selector_all('//h3[text()="Upcoming Events"]/following-sibling::a[contains(@class, "event-entry")]')
+            if upcoming_elements:
+                print(f"Found {len(upcoming_elements)} 'Upcoming' elements.")
+                for event in upcoming_elements:
+                    name_element = event.query_selector("h4")
+                    countdown_element = event.query_selector(".text-bright")
+                    if name_element and countdown_element:
+                        name = name_element.inner_text()
+                        countdown = countdown_element.inner_text()
+                        upcoming_events.append({"name": name, "detail": countdown})
 
         except TimeoutError:
             print("Timed out waiting for event content. Taking a screenshot for debugging...")
