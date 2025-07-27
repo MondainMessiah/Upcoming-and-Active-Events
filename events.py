@@ -21,37 +21,34 @@ def scrape_tibia_events():
             print(f"Navigating to {EVENTS_PAGE_URL}...")
             page.goto(EVENTS_PAGE_URL)
 
-            print("Waiting for the text 'Upcoming Events' to appear...")
-            page.wait_for_selector("text=Upcoming Events", timeout=60000)
-            print("Event content found. Now scraping...")
-
-            # --- NEW, CORRECTED SCRAPING LOGIC ---
+            # Wait for the main events container to appear on the page
+            print("Waiting for events container to load...")
+            page.wait_for_selector("div.events-container", timeout=60000)
+            print("Events container found. Now scraping...")
             
-            # Scrape "Happening Now" events using precise XPath
-            happening_elements = page.query_selector_all('//h3[text()="Happening Now"]/following-sibling::div[1]')
-            if happening_elements:
-                print(f"Found {len(happening_elements)} 'Happening Now' elements.")
-                for event in happening_elements:
-                    # Check for the "no events" message
-                    if "There are no events happening right now" not in event.inner_text():
-                         # If there were events, logic to scrape them would go here
-                         # For now, this handles the empty case
-                         pass
-            
-            # Scrape "Upcoming Events" using precise XPath
-            upcoming_elements = page.query_selector_all('//h3[text()="Upcoming Events"]/following-sibling::a[contains(@class, "event-entry")]')
-            if upcoming_elements:
-                print(f"Found {len(upcoming_elements)} 'Upcoming' elements.")
-                for event in upcoming_elements:
-                    name_element = event.query_selector("h4")
-                    countdown_element = event.query_selector(".text-bright")
-                    if name_element and countdown_element:
-                        name = name_element.inner_text()
-                        countdown = countdown_element.inner_text()
-                        upcoming_events.append({"name": name, "detail": countdown})
+            # Scope our search to the main events container
+            main_container = page.query_selector("div.events-container")
+            if main_container:
+                # Find all individual event blocks
+                event_blocks = main_container.query_selector_all("div.events")
+                print(f"Found {len(event_blocks)} event block(s).")
+                
+                for block in event_blocks:
+                    # Check if it's an upcoming event by looking for the countdown timer
+                    countdown_element = block.query_selector(".dateStart")
+                    title_element = block.query_selector(".event-title")
+                    
+                    if countdown_element and title_element:
+                        name = title_element.inner_text().strip()
+                        detail = countdown_element.inner_text().strip()
+                        
+                        print(f"Scraped Upcoming Event: {name}")
+                        upcoming_events.append({"name": name, "detail": detail})
+            else:
+                print("Could not find the main 'events-container' on the page.")
 
         except TimeoutError:
-            print("Timed out waiting for event content. Taking a screenshot for debugging...")
+            print("Timed out waiting for event content. The page structure may have changed.")
             page.screenshot(path="debug_screenshot.png")
             
         except Exception as e:
