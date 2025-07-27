@@ -11,14 +11,17 @@ EVENTS_PAGE_URL = "https://tibiadraptor.com/"
 def get_tibiawiki_url(event_name):
     """Returns TibiaWiki URL if the page exists, else None."""
     base_url = "https://tibia.fandom.com/wiki/"
-    safe_name = re.sub(r"[^\w\s]", "", event_name)  # Remove non-word/non-space
+    # Remove special characters and replace spaces with underscores for the URL
+    safe_name = re.sub(r"[^\w\s]", "", event_name)
     safe_name = safe_name.replace(" ", "_")
     url = base_url + safe_name
     try:
+        # Use a HEAD request for efficiency, as we only need the status code
         resp = requests.head(url, allow_redirects=True, timeout=5)
         if resp.status_code == 200:
             return url
-    except Exception:
+    except requests.exceptions.RequestException:
+        # Ignore connection errors, timeouts, etc.
         pass
     return None
 
@@ -75,12 +78,16 @@ def scrape_tibia_events():
     return current_events, upcoming_events
 
 def format_discord_message(current_events, upcoming_events):
+    """Formats the scraped event data into a Discord embed message with Wiki links."""
     def format_list(events_list, default_text):
         if not events_list:
             return default_text
+        
         formatted_events = []
         for event in events_list:
+            print(f"Checking for wiki page for: {event['name']}")
             wiki_url = get_tibiawiki_url(event['name'])
+            # Create a clickable link if a wiki URL was found
             if wiki_url:
                 display_name = f"[{event['name']}]({wiki_url})"
             else:
@@ -90,6 +97,7 @@ def format_discord_message(current_events, upcoming_events):
     
     current_events_text = format_list(current_events, "There are no events happening right now.")
     upcoming_events_text = format_list(upcoming_events, "There are no upcoming events scheduled.")
+
     fields = [
         {"name": "✅ Happening Now", "value": current_events_text, "inline": False},
         {"name": "⏳ Upcoming Events", "value": upcoming_events_text, "inline": False}
@@ -106,6 +114,7 @@ def format_discord_message(current_events, upcoming_events):
     return message
 
 def post_to_discord(webhook_url, message):
+    """Posts the formatted message to the Discord webhook."""
     try:
         response = requests.post(webhook_url, json=message)
         response.raise_for_status()
@@ -116,7 +125,9 @@ def post_to_discord(webhook_url, message):
 if __name__ == "__main__":
     if not DISCORD_WEBHOOK_URL:
         raise ValueError("FATAL: DISCORD_WEBHOOK_URL environment variable not set.")
+
     current, upcoming = scrape_tibia_events()
+
     if not current and not upcoming:
         print("No events found on the webpage. No message will be sent.")
     else:
