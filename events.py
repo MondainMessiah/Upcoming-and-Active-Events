@@ -1,11 +1,26 @@
 import os
 import requests
 import datetime
+import re
 from playwright.sync_api import sync_playwright, TimeoutError
 
 # --- Configuration ---
 DISCORD_WEBHOOK_URL = os.environ.get("DISCORD_WEBHOOK_URL")
 EVENTS_PAGE_URL = "https://tibiadraptor.com/"
+
+def get_tibiawiki_url(event_name):
+    """Returns TibiaWiki URL if the page exists, else None."""
+    base_url = "https://tibia.fandom.com/wiki/"
+    safe_name = re.sub(r"[^\w\s]", "", event_name)  # Remove non-word/non-space
+    safe_name = safe_name.replace(" ", "_")
+    url = base_url + safe_name
+    try:
+        resp = requests.head(url, allow_redirects=True, timeout=5)
+        if resp.status_code == 200:
+            return url
+    except Exception:
+        pass
+    return None
 
 def scrape_tibia_events():
     """Launches a browser to scrape event data directly from the website."""
@@ -27,7 +42,6 @@ def scrape_tibia_events():
             
             main_container = page.query_selector("div.events-container")
             if main_container:
-                # NEW: Add a second wait for the content inside the container to be ready
                 print("Waiting for event content to appear inside container...")
                 main_container.wait_for_selector(".event-title", timeout=15000)
                 print("Event content appeared. Now scraping...")
@@ -61,19 +75,37 @@ def scrape_tibia_events():
     return current_events, upcoming_events
 
 def format_discord_message(current_events, upcoming_events):
-    # This function remains the same
     def format_list(events_list, default_text):
         if not events_list:
             return default_text
-        return "\n".join([f"**{event['name']}** ({event['detail']})" for event in events_list])
+        formatted_events = []
+        for event in events_list:
+            wiki_url = get_tibiawiki_url(event['name'])
+            if wiki_url:
+                display_name = f"[{event['name']}]({wiki_url})"
+            else:
+                display_name = event['name']
+            formatted_events.append(f"**{display_name}** ({event['detail']})")
+        return "\n".join(formatted_events)
+    
     current_events_text = format_list(current_events, "There are no events happening right now.")
     upcoming_events_text = format_list(upcoming_events, "There are no upcoming events scheduled.")
-    fields = [{"name": "✅ Happening Now", "value": current_events_text, "inline": False}, {"name": "⏳ Upcoming Events", "value": upcoming_events_text, "inline": False}]
-    message = {"embeds": [{"title": "Tibia Event Schedule", "fields": fields, "footer": {"text": f"Report generated on {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"}}]}
+    fields = [
+        {"name": "✅ Happening Now", "value": current_events_text, "inline": False},
+        {"name": "⏳ Upcoming Events", "value": upcoming_events_text, "inline": False}
+    ]
+    message = {
+        "embeds": [{
+            "title": "Tibia Event Schedule",
+            "fields": fields,
+            "footer": {
+                "text": f"Report generated on {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+            }
+        }]
+    }
     return message
 
 def post_to_discord(webhook_url, message):
-    # This function remains the same
     try:
         response = requests.post(webhook_url, json=message)
         response.raise_for_status()
