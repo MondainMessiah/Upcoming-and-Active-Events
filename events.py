@@ -9,16 +9,23 @@ DISCORD_WEBHOOK_URL = os.environ.get("DISCORD_WEBHOOK_URL")
 EVENTS_PAGE_URL = "https://tibiadraptor.com/"
 
 def get_tibiawiki_url(event_name):
-    """Checks for a TibiaWiki page, trying the /Spoiler URL first."""
-    # --- NEW: Use .capitalize() for more reliable URL formatting ---
-    event_name_formatted = event_name.capitalize()
+    """Checks for a TibiaWiki page using custom title case formatting."""
+    
+    # --- NEW: Custom function for intelligent title casing ---
+    def to_title_case_custom(s):
+        small_words = {'a', 'an', 'the', 'of', 'in', 'on', 'and'}
+        words = s.lower().split()
+        # Always capitalize the first word, then check others against the small_words set
+        capitalized_words = [words[0].capitalize()] + \
+                            [word if word in small_words else word.capitalize() for word in words[1:]]
+        return " ".join(capitalized_words)
+
+    event_name_formatted = to_title_case_custom(event_name)
     
     base_url = "https://tibia.fandom.com/wiki/"
-    # Remove special characters and replace spaces with underscores for the URL
     safe_name = re.sub(r"[^\w\s]", "", event_name_formatted)
     safe_name = safe_name.replace(" ", "_")
     
-    # List of URLs to check, with the /Spoiler version first.
     urls_to_try = [
         base_url + safe_name + "/Spoiler",
         base_url + safe_name
