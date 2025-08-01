@@ -10,11 +10,15 @@ EVENTS_PAGE_URL = "https://tibiadraptor.com/"
 
 def get_tibiawiki_url(event_name):
     """Checks for a TibiaWiki page, trying the /Spoiler URL first."""
-    event_name_title_case = event_name.title()
+    # --- NEW: Use .capitalize() for more reliable URL formatting ---
+    event_name_formatted = event_name.capitalize()
+    
     base_url = "https://tibia.fandom.com/wiki/"
-    safe_name = re.sub(r"[^\w\s]", "", event_name_title_case)
+    # Remove special characters and replace spaces with underscores for the URL
+    safe_name = re.sub(r"[^\w\s]", "", event_name_formatted)
     safe_name = safe_name.replace(" ", "_")
     
+    # List of URLs to check, with the /Spoiler version first.
     urls_to_try = [
         base_url + safe_name + "/Spoiler",
         base_url + safe_name
@@ -67,15 +71,12 @@ def scrape_tibia_events():
                         name = title_element.inner_text().strip()
                         detail = countdown_element.inner_text().strip()
                         
-                        # --- NEW LOGIC TO SORT EVENTS ---
-                        # Check if the event is current or upcoming based on the detail text
                         if "LEFT" in detail.upper():
                             print(f"Scraped CURRENT Event: {name}")
                             current_events.append({"name": name, "detail": detail})
                         elif "TO START" in detail.upper():
                             print(f"Scraped UPCOMING Event: {name}")
                             upcoming_events.append({"name": name, "detail": detail})
-
             else:
                 print("Could not find the main 'events-container' on the page.")
 
