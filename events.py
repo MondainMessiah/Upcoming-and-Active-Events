@@ -7,7 +7,6 @@ from playwright.sync_api import sync_playwright, TimeoutError
 # --- Configuration ---
 DISCORD_WEBHOOK_URL = os.environ.get("DISCORD_WEBHOOK_URL")
 EVENTS_PAGE_URL = "https://tibiadraptor.com/"
-# CORRECTED: Using the more reliable 'latest' news endpoint instead of the ticker
 NEWS_API_URL = "https://api.tibiaapi.com/v4/news/latest" 
 EVENT_KEYWORDS = ["rapid respawn", "double xp and double skill", "double loot"]
 
@@ -84,7 +83,6 @@ def fetch_api_events():
         if data and "news" in data:
             print(f"API returned {len(data['news'])} news articles. Searching for keywords...")
             for item in data["news"]:
-                # Check both title and content for the event
                 content_to_check = (item.get("title", "") + " " + item.get("content", "")).lower()
                 matched_keyword = next((k for k in EVENT_KEYWORDS if k in content_to_check), None)
                 
@@ -96,7 +94,6 @@ def fetch_api_events():
                         "detail": "Active this weekend!",
                         "source": "API"
                     })
-                    # Stop after finding the first one to avoid duplicates from the same announcement
                     break 
         else:
             print("API response did not contain a 'news' section.")
@@ -124,7 +121,7 @@ def format_discord_message(current_events, upcoming_events):
     ]
     return {
         "embeds": [{
-            "title": "Tibia Event Schedule,
+            "title": "Tibia Event & News Report", #<-- THIS LINE IS NOW FIXED
             "color": 3447003, # Blue
             "fields": fields,
             "footer": {"text": f"Report generated on {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"}
