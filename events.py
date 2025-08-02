@@ -1,7 +1,8 @@
 import os
 import requests
-import datetime
 import re
+from datetime import datetime, timedelta # Updated import
+from zoneinfo import ZoneInfo # Added import
 from playwright.sync_api import sync_playwright, TimeoutError
 
 # --- Configuration ---
@@ -125,7 +126,7 @@ def format_discord_message(current_events, upcoming_events):
             "color": 16711680,  # Red color
             "fields": fields,
             "footer": {
-                "text": f"Report generated on {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+                "text": f"Report generated on {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
             }
         }]
     }
