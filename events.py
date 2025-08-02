@@ -10,12 +10,9 @@ EVENTS_PAGE_URL = "https://tibiadraptor.com/"
 
 def get_tibiawiki_url(event_name):
     """Checks for a TibiaWiki page using custom title case formatting."""
-    
-    # --- NEW: Custom function for intelligent title casing ---
     def to_title_case_custom(s):
         small_words = {'a', 'an', 'the', 'of', 'in', 'on', 'and'}
         words = s.lower().split()
-        # Always capitalize the first word, then check others against the small_words set
         capitalized_words = [words[0].capitalize()] + \
                             [word if word in small_words else word.capitalize() for word in words[1:]]
         return " ".join(capitalized_words)
@@ -125,6 +122,7 @@ def format_discord_message(current_events, upcoming_events):
     message = {
         "embeds": [{
             "title": "Tibia Event Schedule",
+            "color": 16711680,  # Red color
             "fields": fields,
             "footer": {
                 "text": f"Report generated on {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
