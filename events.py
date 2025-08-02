@@ -6,11 +6,9 @@ from playwright.sync_api import sync_playwright, TimeoutError
 
 # --- Configuration ---
 DISCORD_WEBHOOK_URL = os.environ.get("DISCORD_WEBHOOK_URL")
-# Source 1: Website Scraping
 EVENTS_PAGE_URL = "https://tibiadraptor.com/"
-# Source 2: API Polling
-NEWS_API_URL = "https://api.tibiaapi.com/v4/news/newsticker"
-# Made keywords more specific to avoid false positives
+# CORRECTED: Using the more reliable 'latest' news endpoint instead of the ticker
+NEWS_API_URL = "https://api.tibiaapi.com/v4/news/latest" 
 EVENT_KEYWORDS = ["rapid respawn", "double xp and double skill", "double loot"]
 
 # --- Helper Functions ---
@@ -76,31 +74,32 @@ def scrape_website_events():
     return current_events, upcoming_events
 
 def fetch_api_events():
-    """
-    Fetches event announcements from the TibiaAPI news ticker.
-    This is the corrected, more robust version.
-    """
+    """Fetches event announcements from the main TibiaAPI news list."""
     api_events = []
-    print("\n▶️ Starting API fetch...")
+    print(f"\n▶️ Starting API fetch from: {NEWS_API_URL}")
     try:
         response = requests.get(NEWS_API_URL, timeout=10)
         response.raise_for_status()
         data = response.json()
         if data and "news" in data:
+            print(f"API returned {len(data['news'])} news articles. Searching for keywords...")
             for item in data["news"]:
-                content_lower = item.get("content", "").lower()
-                # Find which keyword was matched
-                matched_keyword = next((k for k in EVENT_KEYWORDS if k in content_lower), None)
+                # Check both title and content for the event
+                content_to_check = (item.get("title", "") + " " + item.get("content", "")).lower()
+                matched_keyword = next((k for k in EVENT_KEYWORDS if k in content_to_check), None)
                 
                 if matched_keyword:
-                    # Use the matched keyword itself as the event name
-                    name = matched_keyword.title() # e.g., "Rapid Respawn"
-                    print(f"Found API Event: '{name}'")
+                    name = matched_keyword.title()
+                    print(f"✅ Found API Event: '{name}' in news item ID {item.get('id')}")
                     api_events.append({
                         "name": name,
-                        "detail": "Active this weekend!", # Simple detail text for API events
+                        "detail": "Active this weekend!",
                         "source": "API"
                     })
+                    # Stop after finding the first one to avoid duplicates from the same announcement
+                    break 
+        else:
+            print("API response did not contain a 'news' section.")
     except Exception as e:
         print(f"❌ Error during API fetch: {e}")
     return api_events
@@ -168,6 +167,6 @@ if __name__ == "__main__":
         print("\nNo events found from any source. No message will be sent.")
     else:
         print(f"\nFound {len(final_current_events)} current and {len(final_upcoming_events)} upcoming events. Sending message...")
-        final_current_events.sort(key=lambda x: x['name']) # Sort for consistent order
+        final_current_events.sort(key=lambda x: x['name'])
         discord_message = format_discord_message(final_current_events, final_upcoming_events)
         post_to_discord(DISCORD_WEBHOOK_URL, discord_message)
