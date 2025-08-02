@@ -10,7 +10,8 @@ DISCORD_WEBHOOK_URL = os.environ.get("DISCORD_WEBHOOK_URL")
 EVENTS_PAGE_URL = "https://tibiadraptor.com/"
 # Source 2: API Polling
 NEWS_API_URL = "https://api.tibiaapi.com/v4/news/newsticker"
-EVENT_KEYWORDS = ["double xp", "double skill", "rapid respawn", "double loot"]
+# Made keywords more specific to avoid false positives
+EVENT_KEYWORDS = ["rapid respawn", "double xp and double skill", "double loot"]
 
 # --- Helper Functions ---
 
@@ -75,7 +76,10 @@ def scrape_website_events():
     return current_events, upcoming_events
 
 def fetch_api_events():
-    """Fetches event announcements from the TibiaAPI news ticker."""
+    """
+    Fetches event announcements from the TibiaAPI news ticker.
+    This is the corrected, more robust version.
+    """
     api_events = []
     print("\n▶️ Starting API fetch...")
     try:
@@ -85,16 +89,16 @@ def fetch_api_events():
         if data and "news" in data:
             for item in data["news"]:
                 content_lower = item.get("content", "").lower()
-                if any(keyword in content_lower for keyword in EVENT_KEYWORDS):
-                    print(f"Found event in API news: {item.get('content')}")
-                    # Extract a short name for de-duplication
-                    name = "Weekend Event" # Generic name
-                    if "rapid respawn" in content_lower: name = "Rapid Respawn"
-                    elif "double xp" in content_lower: name = "Double XP & Skill"
-
+                # Find which keyword was matched
+                matched_keyword = next((k for k in EVENT_KEYWORDS if k in content_lower), None)
+                
+                if matched_keyword:
+                    # Use the matched keyword itself as the event name
+                    name = matched_keyword.title() # e.g., "Rapid Respawn"
+                    print(f"Found API Event: '{name}'")
                     api_events.append({
                         "name": name,
-                        "detail": item.get('content'),
+                        "detail": "Active this weekend!", # Simple detail text for API events
                         "source": "API"
                     })
     except Exception as e:
@@ -112,7 +116,7 @@ def format_discord_message(current_events, upcoming_events):
         for event in events_list:
             wiki_url = get_tibiawiki_url(event['name'])
             display_name = f"[{event['name']}]({wiki_url})" if wiki_url else event['name']
-            formatted.append(f"**{display_name}** ({event['detail']})")
+            formatted.append(f"**{display_name.upper()}** ({event['detail']})")
         return "\n".join(formatted)
 
     fields = [
@@ -143,31 +147,27 @@ if __name__ == "__main__":
     if not DISCORD_WEBHOOK_URL:
         raise ValueError("FATAL: DISCORD_WEBHOOK_URL environment variable not set.")
 
-    # 1. Fetch data from both sources
     scraped_current, scraped_upcoming = scrape_website_events()
     api_current = fetch_api_events()
 
-    # 2. Merge and de-duplicate results
     final_current_events = []
-    final_upcoming_events = scraped_upcoming # Upcoming events only come from scraper
+    final_upcoming_events = scraped_upcoming
     seen_names = set(event['name'].lower() for event in final_upcoming_events)
 
-    # Add scraped current events first
     for event in scraped_current:
         if event['name'].lower() not in seen_names:
             final_current_events.append(event)
             seen_names.add(event['name'].lower())
     
-    # Add API events if they haven't been seen
     for event in api_current:
         if event['name'].lower() not in seen_names:
             final_current_events.append(event)
             seen_names.add(event['name'].lower())
 
-    # 3. Format and post the message
     if not final_current_events and not final_upcoming_events:
         print("\nNo events found from any source. No message will be sent.")
     else:
         print(f"\nFound {len(final_current_events)} current and {len(final_upcoming_events)} upcoming events. Sending message...")
+        final_current_events.sort(key=lambda x: x['name']) # Sort for consistent order
         discord_message = format_discord_message(final_current_events, final_upcoming_events)
         post_to_discord(DISCORD_WEBHOOK_URL, discord_message)
