@@ -7,26 +7,49 @@ from playwright.sync_api import sync_playwright, TimeoutError
 # --- Configuration ---
 DISCORD_WEBHOOK_URL = os.environ.get("DISCORD_WEBHOOK_URL")
 EVENTS_PAGE_URL = "https://tibiadraptor.com/"
-NEWS_API_URL = "https://api.tibiaapi.com/v4/news/latest" 
+NEWS_API_URL = "https://api.tibiaapi.com/v4/news/latest"
 EVENT_KEYWORDS = ["rapid respawn", "double xp and double skill", "double loot"]
 
 # --- Helper Functions ---
 
 def get_tibiawiki_url(event_name):
-    """Checks for a TibiaWiki page using custom title case formatting."""
-    def to_title_case_custom(s):
-        small_words = {'a', 'an', 'the', 'of', 'in', 'on', 'and'}
+    """Checks for a TibiaWiki page using various formatting approaches."""
+    base_url = "https://tibia.fandom.com/wiki/"
+
+    # Pre-clean the event name for URL use (remove special chars, replace spaces with underscores)
+    def clean_name_for_url(name):
+        return re.sub(r"[^\w\s]", "", name).replace(" ", "_")
+
+    # Custom Title Case Logic
+    def to_title_case_for_wiki(s):
+        small_words = {'a', 'an', 'the', 'of', 'in', 'on', 'and', 'for', 'with', 'to', 'from', 'but', 'or', 'nor', 'yet', 'so'}
         words = s.lower().split()
+        if not words:
+            return ""
         capitalized_words = [words[0].capitalize()] + \
                             [word if word in small_words else word.capitalize() for word in words[1:]]
         return " ".join(capitalized_words)
 
-    event_name_formatted = to_title_case_custom(event_name)
-    base_url = "https://tibia.fandom.com/wiki/"
-    safe_name = re.sub(r"[^\w\s]", "", event_name_formatted).replace(" ", "_")
-    
-    urls_to_try = [f"{base_url}{safe_name}/Spoiler", f"{base_url}{safe_name}"]
-    
+    name_variations = [
+        event_name,                         # Original name
+        to_title_case_for_wiki(event_name), # Attempt custom title case
+        event_name.lower()                  # All lowercase
+    ]
+
+    # Create a set to store unique safe names to avoid redundant URL checks
+    safe_name_variations = list(set(clean_name_for_url(nv) for nv in name_variations))
+
+    # Add common suffixes like "/Spoiler" to each variation
+    urls_to_try = []
+    for safe_name in safe_name_variations:
+        urls_to_try.append(f"{base_url}{safe_name}/Spoiler")
+        urls_to_try.append(f"{base_url}{safe_name}")
+
+    # Ensure no duplicates in the URLs to check
+    urls_to_try = list(dict.fromkeys(urls_to_try))
+
+    # print(f"Attempting to find wiki link for '{event_name}'. Trying URLs: {urls_to_try}")
+
     for url in urls_to_try:
         try:
             resp = requests.head(url, allow_redirects=True, timeout=5)
@@ -85,7 +108,7 @@ def fetch_api_events():
             for item in data["news"]:
                 content_to_check = (item.get("title", "") + " " + item.get("content", "")).lower()
                 matched_keyword = next((k for k in EVENT_KEYWORDS if k in content_to_check), None)
-                
+
                 if matched_keyword:
                     name = matched_keyword.title()
                     print(f"✅ Found API Event: '{name}' in news item ID {item.get('id')}")
@@ -94,7 +117,7 @@ def fetch_api_events():
                         "detail": "Active this weekend!",
                         "source": "API"
                     })
-                    break 
+                    break
         else:
             print("API response did not contain a 'news' section.")
     except Exception as e:
@@ -110,9 +133,15 @@ def format_discord_message(current_events, upcoming_events):
             return default_text
         formatted = []
         for event in events_list:
+            # Pass the original event['name'] to get the URL
             wiki_url = get_tibiawiki_url(event['name'])
-            display_name = f"[{event['name']}]({wiki_url})" if wiki_url else event['name']
-            formatted.append(f"**{display_name.upper()}** ({event['detail']})")
+
+            # The text displayed in Discord can still be uppercase for style
+            display_text = event['name']
+            
+            # Create the final display string for the message
+            display_name = f"[{display_text.upper()}]({wiki_url})" if wiki_url else display_text.upper()
+            formatted.append(f"**{display_name}** ({event['detail']})")
         return "\n".join(formatted)
 
     fields = [
@@ -121,7 +150,7 @@ def format_discord_message(current_events, upcoming_events):
     ]
     return {
         "embeds": [{
-            "title": "Tibia Event & News Report", #<-- THIS LINE IS NOW FIXED
+            "title": "Tibia Event & News Report",
             "color": 3447003, # Blue
             "fields": fields,
             "footer": {"text": f"Report generated on {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"}
@@ -154,7 +183,7 @@ if __name__ == "__main__":
         if event['name'].lower() not in seen_names:
             final_current_events.append(event)
             seen_names.add(event['name'].lower())
-    
+
     for event in api_current:
         if event['name'].lower() not in seen_names:
             final_current_events.append(event)
