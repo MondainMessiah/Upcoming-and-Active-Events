@@ -145,7 +145,7 @@ def format_discord_message(current_events, upcoming_events):
         return "\n".join(formatted)
 
     fields = [
-        {"name": "✅ Happening Now", "value": format_list(current_events, "No current events found."), "inline": False},
+        {"name": "✅ Active Now", "value": format_list(current_events, "No current events found."), "inline": False},
         {"name": "⏳ Upcoming Events", "value": format_list(upcoming_events, "No upcoming events scheduled."), "inline": False}
     ]
     return {
