@@ -150,7 +150,7 @@ def format_discord_message(current_events, upcoming_events):
     ]
     return {
         "embeds": [{
-            "title": "Tibia Event & News Report",
+            "title": "Tibia Events",
             "color": 3447003, # Blue
             "fields": fields,
             "footer": {"text": f"Report generated on {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"}
