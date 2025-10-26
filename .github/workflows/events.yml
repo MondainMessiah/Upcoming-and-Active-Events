@@ -2,7 +2,7 @@ name: Post Tibia Events to Discord
 
 on:
   schedule:
-    - cron: '30 8 * * *'
+    - cron: '30 9 * * *'
   workflow_dispatch:
 
 jobs:
