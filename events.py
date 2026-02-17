@@ -3,15 +3,12 @@ import requests
 import re
 import time
 from datetime import datetime
-from playwright.sync_api import sync_playwright, TimeoutError
+from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeoutError
 
 # --- Configuration ---
 DISCORD_WEBHOOK_URL = os.environ.get("DISCORD_WEBHOOK_URL")
 EVENTS_PAGE_URL = "https://tibiadraptor.com/"
-NEWS_API_URL = "https://api.tibiaapi.com/v4/news/latest"
 EVENT_KEYWORDS = ["rapid respawn", "double xp and double skill", "double loot"]
-MAX_RETRIES = 3
-RETRY_DELAY = 2  # seconds
 
 # --- Helper Functions ---
 
@@ -62,118 +59,149 @@ def get_tibiawiki_url(event_name):
 def scrape_website_events():
     """Launches a browser to scrape event data directly from tibiadraptor.com."""
     current_events, upcoming_events = [], []
+    
+    # Define multiple selector strategies to handle website structure changes
+    selector_strategies = [
+        # Strategy 1: Original selectors
+        {
+            "container": "div.events-container",
+            "blocks": "div.events",
+            "title": ".event-title",
+            "detail": ".dateStart",
+            "name": "Original Selectors"
+        },
+        # Strategy 2: Alternative selectors
+        {
+            "container": "div[class*='event']",
+            "blocks": "div[class*='event-item']",
+            "title": "[class*='title']",
+            "detail": "[class*='date']",
+            "name": "Alternative Selectors (v1)"
+        },
+        # Strategy 3: Simpler approach
+        {
+            "container": "main, article, [role='main']",
+            "blocks": "div[class*='event'], li[class*='event']",
+            "title": "h2, h3, h4, [class*='title']",
+            "detail": "[class*='date'], [class*='time'], span",
+            "name": "Flexible Selectors (v2)"
+        }
+    ]
+    
     with sync_playwright() as p:
         print("▶️ Starting website scrape...")
         browser = p.chromium.launch()
         page = browser.new_page()
+        
         try:
+            print(f"Loading {EVENTS_PAGE_URL}...")
             page.goto(EVENTS_PAGE_URL, wait_until="domcontentloaded", timeout=60000)
             
-            # Wait for main container
-            try:
-                page.wait_for_selector("div.events-container", timeout=30000)
-            except TimeoutError:
-                print("⚠️  Could not find 'div.events-container', trying alternative selectors...")
-                # Try alternative selectors
-                try:
-                    page.wait_for_selector("div.events", timeout=30000)
-                except TimeoutError:
-                    print("⚠️  Could not find event elements, page may have changed structure")
-                    # Save screenshot for debugging
-                    page.screenshot(path="debug_screenshot.png")
-                    browser.close()
-                    return current_events, upcoming_events
+            # Wait for page to be interactive
+            page.wait_for_load_state("networkidle", timeout=30000)
             
-            main_container = page.query_selector("div.events-container")
-            if main_container:
+            success = False
+            
+            for strategy in selector_strategies:
+                if success:
+                    break
+                    
+                print(f"\n📋 Trying {strategy['name']}...")
                 try:
-                    # Increase timeout and add retry logic
-                    main_container.wait_for_selector(".event-title", timeout=20000)
-                except TimeoutError:
-                    print("⚠️  Event titles not found, trying to capture what we can...")
-                    page.screenshot(path="debug_screenshot.png")
-                
-                event_blocks = main_container.query_selector_all("div.events")
-                print(f"Found {len(event_blocks)} event block(s) on website.")
-                for block in event_blocks:
-                    try:
-                        title_el = block.query_selector(".event-title")
-                        countdown_el = block.query_selector(".dateStart")
-                        if title_el and countdown_el:
-                            name = title_el.inner_text().strip()
-                            detail = countdown_el.inner_text().strip()
-                            event = {"name": name, "detail": detail, "source": "Website"}
-                            if "LEFT" in detail.upper():
-                                current_events.append(event)
-                            elif "TO START" in detail.upper():
-                                upcoming_events.append(event)
-                    except Exception as e:
-                        print(f"⚠️  Error processing event block: {e}")
+                    # Try to find container
+                    containers = page.query_selector_all(strategy["container"])
+                    
+                    if not containers:
+                        print(f"   ❌ No containers found with '{strategy['container']}'")
                         continue
-            else:
-                print("⚠️  Could not find main events container")
-                page.screenshot(path="debug_screenshot.png")
+                    
+                    print(f"   ✓ Found {len(containers)} container(s)")
+                    
+                    # Look for event blocks
+                    for container in containers:
+                        try:
+                            # Wait for blocks to appear
+                            container.wait_for_selector(strategy["blocks"], timeout=10000)
+                            event_blocks = container.query_selector_all(strategy["blocks"])
+                            
+                            if event_blocks:
+                                print(f"   ✓ Found {len(event_blocks)} event block(s)")
+                                
+                                for block in event_blocks:
+                                    try:
+                                        # Try to extract title
+                                        title_el = block.query_selector(strategy["title"])
+                                        if not title_el:
+                                            continue
+                                        
+                                        name = title_el.inner_text().strip()
+                                        
+                                        # Try to extract detail
+                                        detail = ""
+                                        detail_el = block.query_selector(strategy["detail"])
+                                        if detail_el:
+                                            detail = detail_el.inner_text().strip()
+                                        
+                                        if name:  # Only add if we have at least a name
+                                            event = {"name": name, "detail": detail or "Event details unavailable", "source": "Website"}
+                                            
+                                            # Categorize by keywords
+                                            if detail:
+                                                if "LEFT" in detail.upper():
+                                                    current_events.append(event)
+                                                elif "TO START" in detail.upper() or "START" in detail.upper():
+                                                    upcoming_events.append(event)
+                                                else:
+                                                    # If detail doesn't have clear indicator, default to upcoming
+                                                    upcoming_events.append(event)
+                                            else:
+                                                # Default to upcoming if no detail
+                                                upcoming_events.append(event)
+                                                
+                                            print(f"   ✓ Found event: {name} ({detail[:30]}...)")
+                                    
+                                    except Exception as e:
+                                        print(f"   ⚠️  Error extracting from block: {str(e)[:60]}")
+                                        continue
+                                
+                                if current_events or upcoming_events:
+                                    success = True
+                                    break
+                        
+                        except Exception as e:
+                            print(f"   ⚠️  Container processing error: {str(e)[:60]}")
+                            continue
                 
+                except Exception as e:
+                    print(f"   ❌ Strategy failed: {str(e)[:60]}")
+                    continue
+            
+            if not success:
+                print("\n⚠️  No events found with standard selectors. Saving page screenshot for debugging...")
+                try:
+                    page.screenshot(path="debug_screenshot.png")
+                    print("   Saved: debug_screenshot.png")
+                except Exception as e:
+                    print(f"   Could not save screenshot: {e}")
+                
+                # Fallback: try to find ANY text that looks like an event
+                print("\n🔍 Attempting fallback text search...")
+                page_text = page.content()
+                if "double xp" in page_text.lower() or "rapid respawn" in page_text.lower() or "double loot" in page_text.lower():
+                    print("   ✓ Found event keywords in page content!")
+                    # You might want to extract these, but for now just note they exist
+        
         except Exception as e:
             print(f"❌ Error during website scrape: {e}")
-            # Try to save a screenshot for debugging
             try:
                 page.screenshot(path="debug_screenshot.png")
             except:
                 pass
+        
         finally:
             browser.close()
     
     return current_events, upcoming_events
-
-def fetch_api_events():
-    """Fetches event announcements from the main TibiaAPI news list with retry logic."""
-    api_events = []
-    print(f"\n▶️ Starting API fetch from: {NEWS_API_URL}")
-    
-    for attempt in range(MAX_RETRIES):
-        try:
-            print(f"Attempt {attempt + 1}/{MAX_RETRIES}...")
-            response = requests.get(NEWS_API_URL, timeout=15)
-            response.raise_for_status()
-            data = response.json()
-            
-            if data and "news" in data:
-                print(f"API returned {len(data['news'])} news articles. Searching for keywords...")
-                for item in data["news"]:
-                    content_to_check = (item.get("title", "") + " " + item.get("content", "")).lower()
-                    matched_keyword = next((k for k in EVENT_KEYWORDS if k in content_to_check), None)
-
-                    if matched_keyword:
-                        name = matched_keyword.title()
-                        print(f"✅ Found API Event: '{name}' in news item ID {item.get('id')}")
-                        api_events.append({
-                            "name": name,
-                            "detail": "Active this weekend!",
-                            "source": "API"
-                        })
-                        break
-            else:
-                print("API response did not contain a 'news' section.")
-            
-            # Success - break out of retry loop
-            break
-            
-        except requests.exceptions.Timeout:
-            print(f"❌ API request timed out (attempt {attempt + 1}/{MAX_RETRIES})")
-            if attempt < MAX_RETRIES - 1:
-                print(f"   Waiting {RETRY_DELAY}s before retry...")
-                time.sleep(RETRY_DELAY)
-        except requests.exceptions.ConnectionError as e:
-            print(f"❌ Connection error: {e} (attempt {attempt + 1}/{MAX_RETRIES})")
-            if attempt < MAX_RETRIES - 1:
-                print(f"   Waiting {RETRY_DELAY}s before retry...")
-                time.sleep(RETRY_DELAY)
-        except Exception as e:
-            print(f"❌ Error during API fetch: {e}")
-            break
-    
-    return api_events
 
 # --- Discord Formatting and Posting ---
 
@@ -218,10 +246,13 @@ if __name__ == "__main__":
     if not DISCORD_WEBHOOK_URL:
         raise ValueError("FATAL: DISCORD_WEBHOOK_URL environment variable not set.")
 
+    print("=" * 60)
+    print("TIBIA EVENTS SCRAPER")
+    print("=" * 60)
+    
     scraped_current, scraped_upcoming = scrape_website_events()
-    api_current = fetch_api_events()
 
-    final_current_events = []
+    final_current_events = scraped_current
     final_upcoming_events = scraped_upcoming
     seen_names = set(event['name'].lower() for event in final_upcoming_events)
 
@@ -230,13 +261,15 @@ if __name__ == "__main__":
             final_current_events.append(event)
             seen_names.add(event['name'].lower())
 
-    for event in api_current:
-        if event['name'].lower() not in seen_names:
-            final_current_events.append(event)
-            seen_names.add(event['name'].lower())
+    print("\n" + "=" * 60)
+    print("SUMMARY")
+    print("=" * 60)
+    print(f"Current Events Found: {len(final_current_events)}")
+    print(f"Upcoming Events Found: {len(final_upcoming_events)}")
+    print("=" * 60)
 
     if not final_current_events and not final_upcoming_events:
-        print("\nNo events found from any source. No message will be sent.")
+        print("\n⚠️  No events found from any source. No message will be sent.")
     else:
         print(f"\nFound {len(final_current_events)} current and {len(final_upcoming_events)} upcoming events. Sending message...")
         final_current_events.sort(key=lambda x: x['name'])
