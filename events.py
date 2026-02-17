@@ -1,6 +1,7 @@
 import os
 import requests
 import re
+import time
 from datetime import datetime
 from playwright.sync_api import sync_playwright, TimeoutError
 
@@ -9,6 +10,8 @@ DISCORD_WEBHOOK_URL = os.environ.get("DISCORD_WEBHOOK_URL")
 EVENTS_PAGE_URL = "https://tibiadraptor.com/"
 NEWS_API_URL = "https://api.tibiaapi.com/v4/news/latest"
 EVENT_KEYWORDS = ["rapid respawn", "double xp and double skill", "double loot"]
+MAX_RETRIES = 3
+RETRY_DELAY = 2  # seconds
 
 # --- Helper Functions ---
 
@@ -16,11 +19,9 @@ def get_tibiawiki_url(event_name):
     """Checks for a TibiaWiki page using various formatting approaches."""
     base_url = "https://tibia.fandom.com/wiki/"
 
-    # Pre-clean the event name for URL use (remove special chars, replace spaces with underscores)
     def clean_name_for_url(name):
         return re.sub(r"[^\w\s]", "", name).replace(" ", "_")
 
-    # Custom Title Case Logic
     def to_title_case_for_wiki(s):
         small_words = {'a', 'an', 'the', 'of', 'in', 'on', 'and', 'for', 'with', 'to', 'from', 'but', 'or', 'nor', 'yet', 'so'}
         words = s.lower().split()
@@ -31,24 +32,19 @@ def get_tibiawiki_url(event_name):
         return " ".join(capitalized_words)
 
     name_variations = [
-        event_name,                         # Original name
-        to_title_case_for_wiki(event_name), # Attempt custom title case
-        event_name.lower()                  # All lowercase
+        event_name,
+        to_title_case_for_wiki(event_name),
+        event_name.lower()
     ]
 
-    # Create a set to store unique safe names to avoid redundant URL checks
     safe_name_variations = list(set(clean_name_for_url(nv) for nv in name_variations))
 
-    # Add common suffixes like "/Spoiler" to each variation
     urls_to_try = []
     for safe_name in safe_name_variations:
         urls_to_try.append(f"{base_url}{safe_name}/Spoiler")
         urls_to_try.append(f"{base_url}{safe_name}")
 
-    # Ensure no duplicates in the URLs to check
     urls_to_try = list(dict.fromkeys(urls_to_try))
-
-    # print(f"Attempting to find wiki link for '{event_name}'. Trying URLs: {urls_to_try}")
 
     for url in urls_to_try:
         try:
@@ -71,57 +67,112 @@ def scrape_website_events():
         browser = p.chromium.launch()
         page = browser.new_page()
         try:
-            page.goto(EVENTS_PAGE_URL)
-            page.wait_for_selector("div.events-container", timeout=60000)
+            page.goto(EVENTS_PAGE_URL, wait_until="domcontentloaded", timeout=60000)
+            
+            # Wait for main container
+            try:
+                page.wait_for_selector("div.events-container", timeout=30000)
+            except TimeoutError:
+                print("⚠️  Could not find 'div.events-container', trying alternative selectors...")
+                # Try alternative selectors
+                try:
+                    page.wait_for_selector("div.events", timeout=30000)
+                except TimeoutError:
+                    print("⚠️  Could not find event elements, page may have changed structure")
+                    # Save screenshot for debugging
+                    page.screenshot(path="debug_screenshot.png")
+                    browser.close()
+                    return current_events, upcoming_events
+            
             main_container = page.query_selector("div.events-container")
             if main_container:
-                main_container.wait_for_selector(".event-title", timeout=15000)
+                try:
+                    # Increase timeout and add retry logic
+                    main_container.wait_for_selector(".event-title", timeout=20000)
+                except TimeoutError:
+                    print("⚠️  Event titles not found, trying to capture what we can...")
+                    page.screenshot(path="debug_screenshot.png")
+                
                 event_blocks = main_container.query_selector_all("div.events")
                 print(f"Found {len(event_blocks)} event block(s) on website.")
                 for block in event_blocks:
-                    title_el = block.query_selector(".event-title")
-                    countdown_el = block.query_selector(".dateStart")
-                    if title_el and countdown_el:
-                        name = title_el.inner_text().strip()
-                        detail = countdown_el.inner_text().strip()
-                        event = {"name": name, "detail": detail, "source": "Website"}
-                        if "LEFT" in detail.upper():
-                            current_events.append(event)
-                        elif "TO START" in detail.upper():
-                            upcoming_events.append(event)
+                    try:
+                        title_el = block.query_selector(".event-title")
+                        countdown_el = block.query_selector(".dateStart")
+                        if title_el and countdown_el:
+                            name = title_el.inner_text().strip()
+                            detail = countdown_el.inner_text().strip()
+                            event = {"name": name, "detail": detail, "source": "Website"}
+                            if "LEFT" in detail.upper():
+                                current_events.append(event)
+                            elif "TO START" in detail.upper():
+                                upcoming_events.append(event)
+                    except Exception as e:
+                        print(f"⚠️  Error processing event block: {e}")
+                        continue
+            else:
+                print("⚠️  Could not find main events container")
+                page.screenshot(path="debug_screenshot.png")
+                
         except Exception as e:
             print(f"❌ Error during website scrape: {e}")
+            # Try to save a screenshot for debugging
+            try:
+                page.screenshot(path="debug_screenshot.png")
+            except:
+                pass
         finally:
             browser.close()
+    
     return current_events, upcoming_events
 
 def fetch_api_events():
-    """Fetches event announcements from the main TibiaAPI news list."""
+    """Fetches event announcements from the main TibiaAPI news list with retry logic."""
     api_events = []
     print(f"\n▶️ Starting API fetch from: {NEWS_API_URL}")
-    try:
-        response = requests.get(NEWS_API_URL, timeout=10)
-        response.raise_for_status()
-        data = response.json()
-        if data and "news" in data:
-            print(f"API returned {len(data['news'])} news articles. Searching for keywords...")
-            for item in data["news"]:
-                content_to_check = (item.get("title", "") + " " + item.get("content", "")).lower()
-                matched_keyword = next((k for k in EVENT_KEYWORDS if k in content_to_check), None)
+    
+    for attempt in range(MAX_RETRIES):
+        try:
+            print(f"Attempt {attempt + 1}/{MAX_RETRIES}...")
+            response = requests.get(NEWS_API_URL, timeout=15)
+            response.raise_for_status()
+            data = response.json()
+            
+            if data and "news" in data:
+                print(f"API returned {len(data['news'])} news articles. Searching for keywords...")
+                for item in data["news"]:
+                    content_to_check = (item.get("title", "") + " " + item.get("content", "")).lower()
+                    matched_keyword = next((k for k in EVENT_KEYWORDS if k in content_to_check), None)
 
-                if matched_keyword:
-                    name = matched_keyword.title()
-                    print(f"✅ Found API Event: '{name}' in news item ID {item.get('id')}")
-                    api_events.append({
-                        "name": name,
-                        "detail": "Active this weekend!",
-                        "source": "API"
-                    })
-                    break
-        else:
-            print("API response did not contain a 'news' section.")
-    except Exception as e:
-        print(f"❌ Error during API fetch: {e}")
+                    if matched_keyword:
+                        name = matched_keyword.title()
+                        print(f"✅ Found API Event: '{name}' in news item ID {item.get('id')}")
+                        api_events.append({
+                            "name": name,
+                            "detail": "Active this weekend!",
+                            "source": "API"
+                        })
+                        break
+            else:
+                print("API response did not contain a 'news' section.")
+            
+            # Success - break out of retry loop
+            break
+            
+        except requests.exceptions.Timeout:
+            print(f"❌ API request timed out (attempt {attempt + 1}/{MAX_RETRIES})")
+            if attempt < MAX_RETRIES - 1:
+                print(f"   Waiting {RETRY_DELAY}s before retry...")
+                time.sleep(RETRY_DELAY)
+        except requests.exceptions.ConnectionError as e:
+            print(f"❌ Connection error: {e} (attempt {attempt + 1}/{MAX_RETRIES})")
+            if attempt < MAX_RETRIES - 1:
+                print(f"   Waiting {RETRY_DELAY}s before retry...")
+                time.sleep(RETRY_DELAY)
+        except Exception as e:
+            print(f"❌ Error during API fetch: {e}")
+            break
+    
     return api_events
 
 # --- Discord Formatting and Posting ---
@@ -133,13 +184,8 @@ def format_discord_message(current_events, upcoming_events):
             return default_text
         formatted = []
         for event in events_list:
-            # Pass the original event['name'] to get the URL
             wiki_url = get_tibiawiki_url(event['name'])
-
-            # The text displayed in Discord can still be uppercase for style
             display_text = event['name']
-            
-            # Create the final display string for the message
             display_name = f"[{display_text.upper()}]({wiki_url})" if wiki_url else display_text.upper()
             formatted.append(f"**{display_name}** ({event['detail']})")
         return "\n".join(formatted)
@@ -151,7 +197,7 @@ def format_discord_message(current_events, upcoming_events):
     return {
         "embeds": [{
             "title": "Tibia Events",
-            "color": 3447003, # Blue
+            "color": 3447003,
             "fields": fields,
             "footer": {"text": f"Report generated on {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"}
         }]
