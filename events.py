@@ -8,17 +8,19 @@ DISCORD_WEBHOOK_URL = os.environ.get("DISCORD_WEBHOOK_URL")
 EVENTS_PAGE_URL = "https://tibiadraptor.com/"
 WORLD_NAME = "Celesta"
 
-# --- Fixed Wiki Search ---
+# --- Improved Wiki Search ---
 
 def get_tibiawiki_url(event_name):
-    """Reliable URL generator for TibiaWiki."""
     base_url = "https://tibia.fandom.com/wiki/"
     search_term = event_name.upper()
     
-    # Precise map for events shown in your screenshots
+    # Precise map based on your link
     name_map = {
-        "DOUBLE DAILY": "Daily_Reward_System",
+        "DOUBLE DAILY": "Double_Daily_Reward_Events",
         "DOUBLE XP": "Double_XP_and_Double_Skill",
+        "DOUBLE SKILL": "Double_XP_and_Double_Skill",
+        "RAPID RESPAWN": "Rapid_Respawn_and_Enhanced_Creature_Yield",
+        "DOUBLE LOOT": "Double_Loot_Event",
         "ORCSOBERFEST": "Orcsoberfest",
         "COLOURS OF MAGIC": "The_Colours_of_Magic",
         "CHYLLFROEST": "Chyllfroest",
@@ -34,17 +36,7 @@ def get_tibiawiki_url(event_name):
     if not target_page:
         target_page = event_name.strip().replace(" ", "_").title()
 
-    url = f"{base_url}{target_page}"
-    
-    # We must use a User-Agent or Fandom will block the request
-    headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}
-    try:
-        resp = requests.get(url, timeout=5, headers=headers)
-        if resp.status_code == 200:
-            return url
-    except:
-        pass
-    return None
+    return f"{base_url}{target_page}"
 
 # --- Data Fetching ---
 
@@ -82,46 +74,40 @@ def create_discord_payload(active, upcoming):
 
     # ACTIVE EMBED
     if active:
-        active_fields = []
+        active_desc = ""
         for e in active:
             url = get_tibiawiki_url(e['name'])
-            # The [Link](URL) format is vital here
-            val = f"🔗 [Wiki Link]({url})" if url else "No Wiki Link"
-            time_val = f"\n`⏳ {e['date'].lower().replace('!', '')}`"
-            active_fields.append({
-                "name": f"✅ {e['name'].upper()}",
-                "value": val + time_val,
-                "inline": False
-            })
+            # Creating a clean clickable header
+            active_desc += f"### ✅ [{e['name'].upper()}]({url})\n"
+            active_desc += f"┕ `⏳ Ends in: {e['date'].lower().replace('!', '')}`\n\n"
         
         embeds.append({
-            "title": f"⚔️ ACTIVE NOW: {WORLD_NAME}",
+            "title": f"🛡️ ACTIVE ON {WORLD_NAME.upper()}",
+            "description": active_desc,
             "color": 0x2ECC71,
-            "fields": active_fields,
             "thumbnail": {"url": "https://wiki.tibia.com/images/3/3a/Tibia_Logo.png"}
         })
 
     # UPCOMING EMBED
     if upcoming:
-        upcoming_fields = []
+        upcoming_desc = ""
         for e in upcoming:
-            url = get_tibiawiki_url(e['name'])
-            val = f"🔗 [Wiki Link]({url})" if url else "No Wiki Link"
-            time_val = f"\n`⏳ {e['date'].lower().replace('!', '').replace('to start', 'starts in')}`"
-            upcoming_fields.append({
-                "name": f"🗓️ {e['name'].upper()}",
-                "value": val + time_val,
-                "inline": False
-            })
+            url = get_tibiawiki_url(event_name=e['name'])
+            upcoming_desc += f"### ⏳ [{e['name'].upper()}]({url})\n"
+            upcoming_desc += f"┕ `🗓️ {e['date'].lower().replace('!', '').replace('to start', 'starts in')}`\n\n"
         
         embeds.append({
-            "title": f"⏳ UPCOMING: {WORLD_NAME}",
+            "title": f"🗓️ UPCOMING FOR {WORLD_NAME.upper()}",
+            "description": upcoming_desc,
             "color": 0x3498DB,
-            "fields": upcoming_fields,
             "footer": {"text": f"Last Updated: {datetime.now().strftime('%H:%M')} | {WORLD_NAME}"}
         })
 
-    return {"embeds": embeds}
+    # Adding a button/link at the bottom via "content" since webhooks can't do real buttons easily
+    return {
+        "content": f"🔗 **Full Schedule:** <{EVENTS_PAGE_URL}>",
+        "embeds": embeds
+    }
 
 # --- Main ---
 
@@ -133,4 +119,4 @@ if __name__ == "__main__":
         if act or upc:
             payload = create_discord_payload(act, upc)
             requests.post(DISCORD_WEBHOOK_URL, json=payload)
-            print("Done!")
+            print("Successfully updated Celesta event board.")
