@@ -8,13 +8,13 @@ DISCORD_WEBHOOK_URL = os.environ.get("DISCORD_WEBHOOK_URL")
 EVENTS_PAGE_URL = "https://tibiadraptor.com/"
 WORLD_NAME = "Celesta"
 
-# --- Improved Wiki Search ---
+# --- Precise Wiki Mapping ---
 
 def get_tibiawiki_url(event_name):
     base_url = "https://tibia.fandom.com/wiki/"
-    search_term = event_name.upper()
+    name = event_name.upper()
     
-    # Precise map based on your link
+    # Exact mapping based on TibiaWiki's strict naming conventions
     name_map = {
         "DOUBLE DAILY": "Double_Daily_Reward_Events",
         "DOUBLE XP": "Double_XP_and_Double_Skill",
@@ -27,16 +27,16 @@ def get_tibiawiki_url(event_name):
         "UNDEAD JESTERS": "Undead_Jesters"
     }
 
-    target_page = None
+    target = None
     for keyword, page in name_map.items():
-        if keyword in search_term:
-            target_page = page
+        if keyword in name:
+            target = page
             break
     
-    if not target_page:
-        target_page = event_name.strip().replace(" ", "_").title()
+    if not target:
+        target = event_name.strip().replace(" ", "_").title()
 
-    return f"{base_url}{target_page}"
+    return f"{base_url}{target}"
 
 # --- Data Fetching ---
 
@@ -72,51 +72,53 @@ def scrape_website_events():
 def create_discord_payload(active, upcoming):
     embeds = []
 
-    # ACTIVE EMBED
+    # 1. ACTIVE EMBED
     if active:
         active_desc = ""
         for e in active:
             url = get_tibiawiki_url(e['name'])
-            # Creating a clean clickable header
+            # Using ### for bold, large headers and the ┕ symbol for cleaner list structure
             active_desc += f"### ✅ [{e['name'].upper()}]({url})\n"
             active_desc += f"┕ `⏳ Ends in: {e['date'].lower().replace('!', '')}`\n\n"
         
         embeds.append({
             "title": f"🛡️ ACTIVE ON {WORLD_NAME.upper()}",
             "description": active_desc,
-            "color": 0x2ECC71,
+            "color": 0x2ECC71, # Emerald Green
             "thumbnail": {"url": "https://wiki.tibia.com/images/3/3a/Tibia_Logo.png"}
         })
 
-    # UPCOMING EMBED
+    # 2. UPCOMING EMBED
     if upcoming:
         upcoming_desc = ""
         for e in upcoming:
-            url = get_tibiawiki_url(event_name=e['name'])
+            url = get_tibiawiki_url(e['name'])
             upcoming_desc += f"### ⏳ [{e['name'].upper()}]({url})\n"
             upcoming_desc += f"┕ `🗓️ {e['date'].lower().replace('!', '').replace('to start', 'starts in')}`\n\n"
         
         embeds.append({
             "title": f"🗓️ UPCOMING FOR {WORLD_NAME.upper()}",
             "description": upcoming_desc,
-            "color": 0x3498DB,
-            "footer": {"text": f"Last Updated: {datetime.now().strftime('%H:%M')} | {WORLD_NAME}"}
+            "color": 0x3498DB, # Bright Blue
+            "footer": {
+                "text": f"Updated: {datetime.now().strftime('%H:%M')} | {WORLD_NAME}",
+                "icon_url": "https://wiki.tibia.com/images/1/1a/Globe.gif"
+            }
         })
 
-    # Adding a button/link at the bottom via "content" since webhooks can't do real buttons easily
     return {
-        "content": f"🔗 **Full Schedule:** <{EVENTS_PAGE_URL}>",
+        "content": f"🔗 **Live Schedule:** <{EVENTS_PAGE_URL}>",
         "embeds": embeds
     }
 
-# --- Main ---
+# --- Execution ---
 
 if __name__ == "__main__":
     if not DISCORD_WEBHOOK_URL:
-        print("Missing Webhook URL")
+        print("Set DISCORD_WEBHOOK_URL env variable.")
     else:
         act, upc = scrape_website_events()
         if act or upc:
             payload = create_discord_payload(act, upc)
             requests.post(DISCORD_WEBHOOK_URL, json=payload)
-            print("Successfully updated Celesta event board.")
+            print("Successfully updated the Celesta board.")
