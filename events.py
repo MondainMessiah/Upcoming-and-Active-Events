@@ -8,37 +8,18 @@ DISCORD_WEBHOOK_URL = os.environ.get("DISCORD_WEBHOOK_URL")
 EVENTS_PAGE_URL = "https://tibiadraptor.com/"
 WORLD_NAME = "Celesta"
 
-# --- Precise Wiki Mapping ---
-
 def get_tibiawiki_url(event_name):
     base_url = "https://tibia.fandom.com/wiki/"
     name = event_name.upper()
-    
-    # Exact mapping based on TibiaWiki's strict naming conventions
     name_map = {
         "DOUBLE DAILY": "Double_Daily_Reward_Events",
         "DOUBLE XP": "Double_XP_and_Double_Skill",
         "DOUBLE SKILL": "Double_XP_and_Double_Skill",
         "RAPID RESPAWN": "Rapid_Respawn_and_Enhanced_Creature_Yield",
-        "DOUBLE LOOT": "Double_Loot_Event",
-        "ORCSOBERFEST": "Orcsoberfest",
-        "COLOURS OF MAGIC": "The_Colours_of_Magic",
-        "CHYLLFROEST": "Chyllfroest",
-        "UNDEAD JESTERS": "Undead_Jesters"
+        "DOUBLE LOOT": "Double_Loot_Event"
     }
-
-    target = None
-    for keyword, page in name_map.items():
-        if keyword in name:
-            target = page
-            break
-    
-    if not target:
-        target = event_name.strip().replace(" ", "_").title()
-
+    target = next((v for k, v in name_map.items() if k in name), event_name.replace(" ", "_").title())
     return f"{base_url}{target}"
-
-# --- Data Fetching ---
 
 def scrape_website_events():
     active, upcoming = [], []
@@ -47,78 +28,58 @@ def scrape_website_events():
         page = browser.new_page()
         try:
             page.goto(EVENTS_PAGE_URL, wait_until="networkidle", timeout=60000)
-            blocks = page.query_selector_all(".events")
-            for block in blocks:
+            for block in page.query_selector_all(".events"):
                 title_el = block.query_selector(".event-title")
                 date_el = block.query_selector(".dateStart")
                 if not title_el: continue
-                
                 name = title_el.inner_text().strip()
                 if name.upper() in ["HAPPENING NOW", "UPCOMING EVENTS", ""]: continue
                 
-                date_text = date_el.inner_text().strip() if date_el else ""
-                event = {"name": name, "date": date_text}
-
-                if "LEFT" in date_text.upper():
-                    if event not in active: active.append(event)
+                event = {"name": name, "date": date_el.inner_text().strip() if date_el else ""}
+                if "LEFT" in event['date'].upper():
+                    active.append(event)
                 else:
-                    if event not in upcoming: upcoming.append(event)
+                    upcoming.append(event)
         finally:
             browser.close()
     return active, upcoming
 
-# --- Discord Formatting ---
-
 def create_discord_payload(active, upcoming):
-    embeds = []
-
-    # 1. ACTIVE EMBED
-    if active:
-        active_desc = ""
-        for e in active:
-            url = get_tibiawiki_url(e['name'])
-            # Using ### for bold, large headers and the ┕ symbol for cleaner list structure
-            active_desc += f"### ✅ [{e['name'].upper()}]({url})\n"
-            active_desc += f"┕ `⏳ Ends in: {e['date'].lower().replace('!', '')}`\n\n"
-        
-        embeds.append({
-            "title": f"🛡️ ACTIVE ON {WORLD_NAME.upper()}",
-            "description": active_desc,
-            "color": 0x2ECC71, # Emerald Green
-            "thumbnail": {"url": "https://wiki.tibia.com/images/3/3a/Tibia_Logo.png"}
+    fields = []
+    
+    # Process Active
+    for e in active:
+        url = get_tibiawiki_url(e['name'])
+        emoji = "🚀 " if "XP" in e['name'].upper() else "✅ "
+        timer = e['date'].lower().replace("!", "")
+        fields.append({
+            "name": f"{emoji}{e['name'][:18]}", # Keeps titles short
+            "value": f"[Wiki]({url}) • `{timer}`",
+            "inline": True
         })
 
-    # 2. UPCOMING EMBED
-    if upcoming:
-        upcoming_desc = ""
-        for e in upcoming:
-            url = get_tibiawiki_url(e['name'])
-            upcoming_desc += f"### ⏳ [{e['name'].upper()}]({url})\n"
-            upcoming_desc += f"┕ `🗓️ {e['date'].lower().replace('!', '').replace('to start', 'starts in')}`\n\n"
-        
-        embeds.append({
-            "title": f"🗓️ UPCOMING FOR {WORLD_NAME.upper()}",
-            "description": upcoming_desc,
-            "color": 0x3498DB, # Bright Blue
-            "footer": {
-                "text": f"Updated: {datetime.now().strftime('%H:%M')} | {WORLD_NAME}",
-                "icon_url": "https://wiki.tibia.com/images/1/1a/Globe.gif"
-            }
+    # Process Upcoming
+    for e in upcoming:
+        url = get_tibiawiki_url(e['name'])
+        timer = e['date'].lower().replace("!", "").replace("to start", "starts")
+        fields.append({
+            "name": f"⏳ {e['name'][:18]}",
+            "value": f"[Wiki]({url}) • `{timer}`",
+            "inline": True
         })
 
     return {
-        "content": f"🔗 **Live Schedule:** <{EVENTS_PAGE_URL}>",
-        "embeds": embeds
+        "embeds": [{
+            "title": f"🛡️ {WORLD_NAME} Events",
+            "url": EVENTS_PAGE_URL,
+            "color": 0x2ECC71 if active else 0x3498DB,
+            "fields": fields,
+            "footer": {"text": f"Updated: {datetime.now().strftime('%H:%M')}"}
+        }]
     }
 
-# --- Execution ---
-
 if __name__ == "__main__":
-    if not DISCORD_WEBHOOK_URL:
-        print("Set DISCORD_WEBHOOK_URL env variable.")
-    else:
+    if DISCORD_WEBHOOK_URL:
         act, upc = scrape_website_events()
         if act or upc:
-            payload = create_discord_payload(act, upc)
-            requests.post(DISCORD_WEBHOOK_URL, json=payload)
-            print("Successfully updated the Celesta board.")
+            requests.post(DISCORD_WEBHOOK_URL, json=create_discord_payload(act, upc))
