@@ -28,13 +28,13 @@ def scrape_website_events():
         page = browser.new_page()
         try:
             page.goto(EVENTS_PAGE_URL, wait_until="networkidle", timeout=60000)
-            for block in page.query_selector_all(".events"):
+            blocks = page.query_selector_all(".events")
+            for block in blocks:
                 title_el = block.query_selector(".event-title")
                 date_el = block.query_selector(".dateStart")
                 if not title_el: continue
                 name = title_el.inner_text().strip()
                 if name.upper() in ["HAPPENING NOW", "UPCOMING EVENTS", ""]: continue
-                
                 event = {"name": name, "date": date_el.inner_text().strip() if date_el else ""}
                 if "LEFT" in event['date'].upper():
                     active.append(event)
@@ -45,38 +45,47 @@ def scrape_website_events():
     return active, upcoming
 
 def create_discord_payload(active, upcoming):
-    fields = []
-    
-    # Process Active
-    for e in active:
-        url = get_tibiawiki_url(e['name'])
-        emoji = "🚀 " if "XP" in e['name'].upper() else "✅ "
-        timer = e['date'].lower().replace("!", "")
-        fields.append({
-            "name": f"{emoji}{e['name'][:18]}", # Keeps titles short
-            "value": f"[Wiki]({url}) • `{timer}`",
-            "inline": True
+    embeds = []
+
+    # 1. ACTIVE EMBED (Green & Compact)
+    if active:
+        active_fields = []
+        for e in active:
+            url = get_tibiawiki_url(e['name'])
+            # Using bold text but no headers to keep it small
+            active_fields.append({
+                "name": f"✅ {e['name']}",
+                "value": f"[Wiki]({url}) • `{e['date'].lower()}`",
+                "inline": True # Side-by-side to save space
+            })
+        
+        embeds.append({
+            "title": f"Active: {WORLD_NAME}",
+            "color": 0x2ECC71,
+            "fields": active_fields
         })
 
-    # Process Upcoming
-    for e in upcoming:
-        url = get_tibiawiki_url(e['name'])
-        timer = e['date'].lower().replace("!", "").replace("to start", "starts")
-        fields.append({
-            "name": f"⏳ {e['name'][:18]}",
-            "value": f"[Wiki]({url}) • `{timer}`",
-            "inline": True
-        })
-
-    return {
-        "embeds": [{
-            "title": f"🛡️ {WORLD_NAME} Events",
-            "url": EVENTS_PAGE_URL,
-            "color": 0x2ECC71 if active else 0x3498DB,
-            "fields": fields,
+    # 2. UPCOMING EMBED (Blue & Compact)
+    if upcoming:
+        upcoming_fields = []
+        for e in upcoming:
+            url = get_tibiawiki_url(e['name'])
+            # Cleaning up the timer text
+            timer = e['date'].lower().replace("to start", "starts")
+            upcoming_fields.append({
+                "name": f"⏳ {e['name']}",
+                "value": f"[Wiki]({url}) • `{timer}`",
+                "inline": True # Side-by-side to save space
+            })
+        
+        embeds.append({
+            "title": f"Upcoming: {WORLD_NAME}",
+            "color": 0x3498DB,
+            "fields": upcoming_fields,
             "footer": {"text": f"Updated: {datetime.now().strftime('%H:%M')}"}
-        }]
-    }
+        })
+
+    return {"embeds": embeds}
 
 if __name__ == "__main__":
     if DISCORD_WEBHOOK_URL:
