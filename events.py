@@ -5,90 +5,69 @@ from playwright.sync_api import sync_playwright
 
 # --- Configuration ---
 DISCORD_WEBHOOK_URL = os.environ.get("DISCORD_WEBHOOK_URL")
-# Backup Source: TibiaPal
-EVENTS_PAGE_URL = "https://tibiapal.com/events" 
+# Reliable Source: TibiaWiki Upcoming Events
+EVENTS_PAGE_URL = "https://tibia.fandom.com/wiki/Upcoming_Events"
 WORLD_NAME = "Celesta"
 
-def get_tibiawiki_url(event_name):
-    base_url = "https://tibia.fandom.com/wiki/"
-    name = event_name.upper()
-    name_map = {
-        "DOUBLE DAILY": "Double_Daily_Reward_Events",
-        "DOUBLE XP": "Double_XP_and_Double_Skill",
-        "DOUBLE SKILL": "Double_XP_and_Double_Skill",
-        "RAPID RESPAWN": "Rapid_Respawn_and_Enhanced_Creature_Yield",
-        "DOUBLE LOOT": "Double_Loot_Event"
-    }
-    target = next((v for k, v in name_map.items() if k in name), event_name.replace(" ", "_").title())
-    return f"{base_url}{target}"
-
-def scrape_tibiapal_events():
+def scrape_tibiawiki_events():
     active, upcoming = [], []
     with sync_playwright() as p:
         browser = p.chromium.launch()
         page = browser.new_page()
         try:
             print(f"🔍 Visiting {EVENTS_PAGE_URL}...")
-            # We use a 45s timeout to be safe
-            page.goto(EVENTS_PAGE_URL, wait_until="networkidle", timeout=45000)
+            page.goto(EVENTS_PAGE_URL, wait_until="domcontentloaded", timeout=45000)
             
-            # TibiaPal typically uses distinct sections or cards for events
-            # We target common containers like 'card' or list items
-            event_elements = page.query_selector_all(".event-card, .event-item, tr") 
+            # TibiaWiki uses a specific list structure for upcoming events
+            # We target the 'Upcoming Events' section specifically
+            event_items = page.query_selector_all("div.mw-parser-output > ul > li")
             
-            for el in event_elements:
-                text = el.inner_text().strip()
-                if not text or "Boosted" in text: continue # Skip unrelated info
+            for li in event_items:
+                text = li.inner_text().strip()
+                # Skip navigation or category links that aren't actual events
+                if "start in" not in text.lower(): continue
                 
-                # Split logic: Name is usually the first line, date/timer is second
-                lines = text.split('\n')
-                if len(lines) >= 2:
-                    name = lines[0].strip()
-                    date_info = lines[1].strip()
-                    
-                    event = {"name": name, "date": date_info}
-                    
-                    # Logic to sort based on current status
-                    if "active" in text.lower() or "ends" in text.lower() or "left" in text.lower():
-                        active.append(event)
-                    else:
-                        upcoming.append(event)
+                # Format: "Event Name will start in X days on Month Day."
+                # We split to get the Name and the Date
+                parts = text.split(" will start in ")
+                name = parts[0].strip()
+                date_info = parts[1].strip() if len(parts) > 1 else "Check Wiki"
+                
+                url_element = li.query_selector("a")
+                url = "https://tibia.fandom.com" + url_element.get_attribute("href") if url_element else f"https://tibia.fandom.com/wiki/{name.replace(' ', '_')}"
+                
+                event = {"name": name, "date": date_info, "url": url}
+                upcoming.append(event)
+                
+            # Note: Active events on Wiki are usually in a separate "Active" template
+            # For now, we focus on Upcoming since the 'Current' logic varies by month
         except Exception as e:
-            print(f"❌ Backup Error: {e}")
+            print(f"❌ Wiki Scrape Error: {e}")
         finally:
             browser.close()
     return active, upcoming
 
 def create_discord_payload(active, upcoming):
     embeds = []
-    
-    # Process Active
-    if active:
-        desc = ""
-        for e in active:
-            url = get_tibiawiki_url(e['name'])
-            desc += f"✅ **[{e['name'].upper()}]({url})**\n`┕ {e['date'].lower()}`\n"
-        embeds.append({"title": "ACTIVE EVENTS", "color": 0x2ECC71, "description": desc.strip()})
-
-    # Process Upcoming
     if upcoming:
         desc = ""
-        for e in upcoming:
-            url = get_tibiawiki_url(e['name'])
-            desc += f"⏳ **[{e['name'].upper()}]({url})**\n`┕ {e['date'].lower()}`\n"
+        # Limit to the next 5 events to keep it small
+        for e in upcoming[:5]:
+            desc += f"⏳ **[{e['name'].upper()}]({e['url']})**\n`┕ {e['date'].lower()}`\n"
+        
         embeds.append({
-            "title": "UPCOMING EVENTS", 
-            "color": 0x3498DB, 
+            "title": "UPCOMING EVENTS",
+            "color": 0x3498DB,
             "description": desc.strip(),
-            "footer": {"text": f"Source: TibiaPal | World: {WORLD_NAME} | {datetime.now().strftime('%H:%M')}"}
+            "footer": {"text": f"Source: TibiaWiki | World: {WORLD_NAME} | {datetime.now().strftime('%H:%M')}"}
         })
     return {"embeds": embeds}
 
 if __name__ == "__main__":
     if DISCORD_WEBHOOK_URL:
-        act, upc = scrape_tibiapal_events()
-        if act or upc:
+        act, upc = scrape_tibiawiki_events()
+        if upc:
             requests.post(DISCORD_WEBHOOK_URL, json=create_discord_payload(act, upc))
-            print("Successfully posted TibiaPal data.")
+            print("Successfully posted TibiaWiki data.")
         else:
-            print("📭 No data found on TibiaPal.")
+            print("📭 No data found on TibiaWiki.")
