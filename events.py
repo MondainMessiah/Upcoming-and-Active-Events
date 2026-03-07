@@ -1,79 +1,62 @@
 import os
 import requests
-from bs4 import BeautifulSoup
 from datetime import datetime
+from playwright.sync_api import sync_playwright
 
 # --- Configuration ---
 DISCORD_WEBHOOK_URL = os.environ.get("DISCORD_WEBHOOK_URL")
-OFFICIAL_NEWS_URL = "https://www.tibia.com/news/?subtopic=latestnews"
+WIKI_EVENTS_URL = "https://tibia.fandom.com/wiki/Upcoming_Events"
 WORLD_NAME = "Celesta"
 
-def get_tibiawiki_url(event_name):
-    base_url = "https://tibia.fandom.com/wiki/"
-    name_map = {
-        "DOUBLE DAILY": "Double_Daily_Reward_Events",
-        "DOUBLE XP": "Double_XP_and_Double_Skill",
-        "RAPID RESPAWN": "Rapid_Respawn_and_Enhanced_Creature_Yield"
-    }
-    name = event_name.upper()
-    target = next((v for k, v in name_map.items() if k in name), event_name.replace(" ", "_").title())
-    return f"{base_url}{target}"
-
-def scrape_official_tibia():
-    active = []
-    headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) CelestaEventBot/1.0"}
+def scrape_dynamic_events():
+    active, upcoming = [], []
     
-    try:
-        response = requests.get(OFFICIAL_NEWS_URL, headers=headers, timeout=20)
-        if response.status_code == 200:
-            soup = BeautifulSoup(response.text, 'html.parser')
+    # Static logic for March-long events
+    active.append({"name": "Double Daily Rewards", "date": "Until March 31"})
+
+    with sync_playwright() as p:
+        browser = p.firefox.launch(headless=True)
+        page = browser.new_page()
+        try:
+            page.goto(WIKI_EVENTS_URL, wait_until="domcontentloaded", timeout=45000)
+            items = page.query_selector_all("div.mw-parser-output > ul > li")
             
-            # Search Tickers (Short news)
-            tickers = soup.find_all('div', class_='NewsTickerText')
-            for t in tickers:
-                txt = t.get_text()
-                if any(x in txt.lower() for x in ["double", "event", "skill", "xp"]):
-                    name = txt.split('!')[0] if '!' in txt else txt[:40]
-                    active.append({"name": name.strip(), "date": "Check News Ticker"})
+            for li in items:
+                text = li.inner_text()
+                # Check for the big XP weekend ending soon
+                if "Double XP" in text and "March 9" in text:
+                    active.append({"name": "Double XP & Skill", "date": "Ends March 9!"})
+                
+                # Scrape upcoming specifically for the next 10 days
+                elif "March" in text and "start in" in text:
+                    name = text.split(" will start")[0]
+                    date = "March " + text.split("on March ")[1].replace(".", "")
+                    upcoming.append({"name": name, "date": date})
+        except:
+            pass
+        finally:
+            browser.close()
+    return active, upcoming
 
-            # Search News Headlines (Big events)
-            headlines = soup.find_all('div', class_='NewsHeadlineText')
-            for h in headlines:
-                txt = h.get_text()
-                if "Double" in txt or "Event" in txt:
-                    active.append({"name": txt.strip(), "date": "Currently Active"})
-        
-        # Emergency Fallback: If CipSoft's site is being difficult, 
-        # report the known March 2026 events.
-        if not active:
-            active.append({"name": "Double Daily Rewards", "date": "March 1 - March 31"})
-            active.append({"name": "Double XP & Skill", "date": "Until March 9"})
-
-    except Exception as e:
-        print(f"Error: {e}")
-        active.append({"name": "Check Tibia.com", "date": "Scraper connection error"})
-        
-    return active
-
-def post_to_discord(events):
-    if not events: return
+def post_discord(active, upcoming):
+    embeds = []
     
-    desc = ""
-    for e in events:
-        url = get_tibiawiki_url(e['name'])
-        desc += f"✅ **[{e['name'].upper()}]({url})**\n`┕ {e['date']}`\n"
+    if active:
+        desc = "\n".join([f"✅ **[{a['name'].upper()}](https://tibia.fandom.com/wiki/{a['name'].replace(' ', '_')})**\n`┕ {a['date']}`" for a in active])
+        embeds.append({"title": "ACTIVE EVENTS", "color": 0x2ECC71, "description": desc})
 
-    payload = {
-        "embeds": [{
-            "title": "ACTIVE EVENTS",
-            "description": desc.strip(),
-            "color": 0x2ECC71,
-            "footer": {"text": f"World: {WORLD_NAME} | Updated: {datetime.now().strftime('%H:%M')}"}
-        }]
-    }
-    requests.post(DISCORD_WEBHOOK_URL, json=payload)
+    if upcoming:
+        # Show only the next 3 events to keep the post small
+        desc = "\n".join([f"⏳ **[{u['name'].upper()}](https://tibia.fandom.com/wiki/{u['name'].replace(' ', '_')})**\n`┕ {u['date']}`" for u in upcoming[:3]])
+        embeds.append({
+            "title": "UPCOMING EVENTS", 
+            "color": 0x3498DB, 
+            "description": desc,
+            "footer": {"text": f"Celesta • Updated {datetime.now().strftime('%H:%M')}"}
+        })
+
+    requests.post(DISCORD_WEBHOOK_URL, json={"embeds": embeds})
 
 if __name__ == "__main__":
-    if DISCORD_WEBHOOK_URL:
-        active_events = scrape_official_tibia()
-        post_to_discord(active_events)
+    act, upc = scrape_dynamic_events()
+    post_discord(act, upc)
