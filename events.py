@@ -16,9 +16,7 @@ def get_tibiawiki_url(event_name):
         "DOUBLE XP": "Double_XP_and_Double_Skill",
         "DOUBLE SKILL": "Double_XP_and_Double_Skill",
         "RAPID RESPAWN": "Rapid_Respawn_and_Enhanced_Creature_Yield",
-        "DOUBLE LOOT": "Double_Loot_Event",
-        "ORCSOBERFEST": "Orcsoberfest",
-        "CHYLLFROEST": "Chyllfroest"
+        "DOUBLE LOOT": "Double_Loot_Event"
     }
     target = next((v for k, v in name_map.items() if k in name), event_name.replace(" ", "_").title())
     return f"{base_url}{target}"
@@ -29,8 +27,13 @@ def scrape_website_events():
         browser = p.chromium.launch()
         page = browser.new_page()
         try:
+            print(f"🔍 Visiting {EVENTS_PAGE_URL}...")
             page.goto(EVENTS_PAGE_URL, wait_until="networkidle", timeout=60000)
-            for block in page.query_selector_all(".events"):
+            
+            blocks = page.query_selector_all(".events")
+            print(f"📊 Found {len(blocks)} potential event blocks.")
+            
+            for block in blocks:
                 title_el = block.query_selector(".event-title")
                 date_el = block.query_selector(".dateStart")
                 if not title_el: continue
@@ -38,52 +41,43 @@ def scrape_website_events():
                 name = title_el.inner_text().strip()
                 if name.upper() in ["HAPPENING NOW", "UPCOMING EVENTS", ""]: continue
                 
-                event = {"name": name, "date": date_el.inner_text().strip() if date_el else ""}
+                event = {"name": name, "date": date_el.inner_text().strip() if date_el else "No Date"}
+                print(f"📍 Found Event: {name} ({event['date']})")
+                
                 if "LEFT" in event['date'].upper():
                     active.append(event)
                 else:
                     upcoming.append(event)
+        except Exception as e:
+            print(f"❌ Scraping error: {e}")
         finally:
             browser.close()
     return active, upcoming
 
 def create_discord_payload(active, upcoming):
     embeds = []
-
-    # 1. ACTIVE EVENTS EMBED (Green)
     if active:
-        active_list = ""
-        for e in active:
-            url = get_tibiawiki_url(e['name'])
-            # The Name IS the link here
-            active_list += f"✅ **[{e['name'].upper()}]({url})**\n`┕ {e['date'].lower()}`\n"
-        
-        embeds.append({
-            "title": "ACTIVE EVENTS",
-            "color": 0x2ECC71,
-            "description": active_list.strip()
-        })
+        active_list = "\n".join([f"✅ **[{e['name'].upper()}]({get_tibiawiki_url(e['name'])})**\n`┕ {e['date'].lower()}`" for e in active])
+        embeds.append({"title": "ACTIVE EVENTS", "color": 0x2ECC71, "description": active_list})
 
-    # 2. UPCOMING EVENTS EMBED (Blue)
     if upcoming:
-        upcoming_list = ""
-        for e in upcoming:
-            url = get_tibiawiki_url(e['name'])
-            timer = e['date'].lower().replace("to start", "starts")
-            upcoming_list += f"⏳ **[{e['name'].upper()}]({url})**\n`┕ {timer}`\n"
-        
+        upcoming_list = "\n".join([f"⏳ **[{e['name'].upper()}]({get_tibiawiki_url(e['name'])})**\n`┕ {e['date'].lower().replace('to start', 'starts')}`" for e in upcoming])
         embeds.append({
-            "title": "UPCOMING EVENTS",
-            "color": 0x3498DB,
-            "description": upcoming_list.strip(),
+            "title": "UPCOMING EVENTS", 
+            "color": 0x3498DB, 
+            "description": upcoming_list,
             "footer": {"text": f"World: {WORLD_NAME} | Updated: {datetime.now().strftime('%H:%M')}"}
         })
-
     return {"embeds": embeds}
 
 if __name__ == "__main__":
-    if DISCORD_WEBHOOK_URL:
+    if not DISCORD_WEBHOOK_URL:
+        print("❌ Webhook URL is missing!")
+    else:
         act, upc = scrape_website_events()
-        if act or upc:
-            requests.post(DISCORD_WEBHOOK_URL, json=create_discord_payload(act, upc))
-            print("Successfully posted updated event board.")
+        if not act and not upc:
+            print("📭 The website is currently empty. Nothing to post.")
+        else:
+            payload = create_discord_payload(act, upc)
+            resp = requests.post(DISCORD_WEBHOOK_URL, json=payload)
+            print(f"🚀 Discord response: {resp.status_code}")
