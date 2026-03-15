@@ -10,7 +10,7 @@ WORLD_NAME = "Celesta"
 
 BLOCKLIST = [
     "GRIMVALE", "WAR AGAINST THE CURSE", "THAWING", "NOMADS", 
-    "BANK ROBBERY", "OVERWHELMED", "COLOURS OF MAGIC", "FLOWER",
+    "BANK ROBBERY", "OVERWHELMED", "FLOWER",
     "POACHERS", "RIVER", "HIVE", "DEEPLINGS"
 ]
 
@@ -21,14 +21,14 @@ def get_dynamic_months():
 
 def is_major_event(name):
     name_up = name.upper()
-    if any(x in name_up for x in ["ORCSOBERFEST", "DOUBLE", "RAPID", "BEWITCHED"]):
+    # Adding 'COLOURS' to the bypass list so it shows up as a major world event
+    if any(x in name_up for x in ["ORCSOBERFEST", "DOUBLE", "RAPID", "BEWITCHED", "COLOURS"]):
         return True
     return not any(word in name_up for word in BLOCKLIST)
 
 def scrape_stable_events():
     active, upcoming = [], []
     months = get_dynamic_months()
-    today = datetime.now()
     
     with sync_playwright() as p:
         browser = p.firefox.launch(headless=True)
@@ -40,13 +40,11 @@ def scrape_stable_events():
             for li in items:
                 text = li.inner_text()
                 
-                # Active logic: Check if it's currently running
                 if any(x in text.lower() for x in ["ends on", "running"]) and any(m in text for m in months):
                     name = text.split(" ends")[0].strip() if " ends" in text else text.split(" is")[0].strip()
                     if is_major_event(name):
                         active.append({"name": name, "date": "Active Now"})
                 
-                # Upcoming logic
                 elif "start" in text.lower() and any(m in text for m in months):
                     name = (text.split(" will start")[0] if " will" in text else text.split(" starts")[0]).strip()
                     if is_major_event(name):
@@ -63,12 +61,20 @@ def scrape_stable_events():
     return active, upcoming
 
 def post_discord(active, upcoming):
-    # Dynamic Safety Net: If the scraper is empty, we show the actual remaining March events
+    # DYNAMIC SAFETY NET: Only shows events if today's date is before or during the event
+    today_day = datetime.now().day
+    
     if not active and not upcoming:
-        # Since today is the 10th, Double XP is gone. 
-        # Double Daily is the only thing currently active.
+        # Double Daily is active all month
         active.append({"name": "Double Daily Rewards", "date": "Until March 31"})
-        upcoming.append({"name": "Orcsoberfest", "date": "March 13"})
+        
+        # Orcsoberfest (March 13 - 20)
+        if today_day <= 20:
+            active.append({"name": "Orcsoberfest", "date": "Ends March 20"})
+            
+        # Colours of Magic (March 15 - 23)
+        if today_day <= 23:
+            active.append({"name": "Colours of Magic", "date": "Ends March 23"})
 
     embeds = []
     
