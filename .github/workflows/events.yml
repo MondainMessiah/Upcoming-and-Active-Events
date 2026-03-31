@@ -2,8 +2,8 @@ name: Tibia Event Tracker
 
 on:
   schedule:
-    # Runs every day at 10:30 AM UTC (shortly after Server Save)
-    - cron: '10 09 * * *'
+    # Runs every day at 09:10 AM UTC (shortly after Server Save)
+    - cron: '10 08 * * *'
   workflow_dispatch: # Allows you to run it manually by clicking a button
 
 jobs:
