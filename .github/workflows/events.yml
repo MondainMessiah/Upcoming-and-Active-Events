@@ -2,9 +2,10 @@ name: Tibia Event Tracker
 
 on:
   schedule:
-    # Runs every day at 09:10 AM UTC (shortly after Server Save)
+    # Runs every day at 09:10 AM BST (08:10 AM UTC)
+    # This is shortly after the 09:00 AM BST Server Save.
     - cron: '10 08 * * *'
-  workflow_dispatch: # Allows you to run it manually by clicking a button
+  workflow_dispatch: # Allows you to run it manually via the Actions tab
 
 jobs:
   build:
@@ -22,7 +23,8 @@ jobs:
       - name: Install Python Dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install requests playwright beautifulsoup4
+          # Added BeautifulSoup4 for parsing the official calendar HTML
+          pip install requests beautifulsoup4 playwright
 
       - name: Cache Playwright Browsers
         id: playwright-cache
@@ -32,11 +34,14 @@ jobs:
           key: ${{ runner.os }}-playwright-${{ hashFiles('**/requirements.txt') }}
 
       - name: Install Playwright Browsers
-        # Only downloads if the cache wasn't found
+        # Downloads the Firefox engine only if the cache is missing
         if: steps.playwright-cache.outputs.cache-hit != 'true'
         run: python -m playwright install firefox --with-deps
 
       - name: Run Event Scraper
         env:
+          # Your Discord Webhook for notifications
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          # Your Google Apps Script proxy to bypass Tibia.com security
+          GOOGLE_BRIDGE_URL: ${{ secrets.GOOGLE_BRIDGE_URL }}
         run: python events.py
