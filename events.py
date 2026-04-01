@@ -7,8 +7,15 @@ from datetime import datetime
 PROXY_URL = os.environ.get("GOOGLE_BRIDGE_URL")
 DISCORD_WEBHOOK_URL = os.environ.get("DISCORD_WEBHOOK_URL")
 
-# Events that deserve an extra "Diamond" highlight
-HIGH_PRIORITY = ["DOUBLE XP", "DOUBLE SKILL", "RAPID RESPAWN", "DOUBLE LOOT", "BEWITCHED"]
+def get_wiki_link(name):
+    """Maps event names to their specific Wiki URLs."""
+    name_up = name.upper()
+    # Direct override for the Exaltation Overload event URL
+    if "FORGE" in name_up or "OVERLOAD" in name_up:
+        return "https://tibia.fandom.com/wiki/Exaltation_Overload_Events"
+    
+    # Standard Wiki URL formatting for all other events
+    return f"https://tibia.fandom.com/wiki/{name.replace(' ', '_')}"
 
 def scrape_official_calendar():
     active, upcoming = [], []
@@ -16,24 +23,22 @@ def scrape_official_calendar():
         return active, upcoming
 
     try:
+        # Fetching official HTML via your Google Bridge Proxy
         response = requests.get(PROXY_URL, timeout=30)
         soup = BeautifulSoup(response.text, 'html.parser')
         events = soup.find_all('div', class_='EventSchedule')
         
         for event in events:
             name = event.get_text().strip()
-            name_up = name.upper()
             
-            # Apply Diamond Highlight to major power-gaming events
-            display_name = f"💎 {name}" if any(hp in name_up for hp in HIGH_PRIORITY) else name
-
-            # Official April 2026 Logic
+            # Official naming logic for April 2026
             if "Chyllfroest" in name:
                 active.append({"name": "Chyllfroest", "date": "April 1 - May 1"})
-            elif "Forge" in name:
-                upcoming.append({"name": display_name, "date": "April 3 - April 6"})
+            elif "Forge" in name or "Overload" in name:
+                # Correcting name to 'Exaltation Overload'
+                upcoming.append({"name": "Exaltation Overload", "date": "April 3 - April 6"})
             elif "Double" in name or "Rapid" in name:
-                upcoming.append({"name": display_name, "date": "Check Calendar"})
+                upcoming.append({"name": name, "date": "Check Calendar"})
                 
     except Exception as e:
         print(f"Proxy Error: {e}")
@@ -41,7 +46,7 @@ def scrape_official_calendar():
     # Accurate Fallback
     if not active and not upcoming:
         active.append({"name": "Chyllfroest", "date": "Until May 1"})
-        upcoming.append({"name": "💎 Exaltation Forge Bonus", "date": "Starts April 3"})
+        upcoming.append({"name": "Exaltation Overload", "date": "Starts April 3"})
         
     return active, upcoming
 
@@ -49,11 +54,13 @@ def post_discord(active, upcoming):
     embeds = []
     
     if active:
-        active_desc = "\n".join([f"🚀 **[`[{a['name'].upper()}]`](https://tibia.fandom.com/wiki/{a['name'].replace(' ', '_')})**\n`┕ {a['date']}`" for a in active])
+        # Link construction uses the mapping function to avoid broken URLs
+        active_desc = "\n".join([f"🚀 **[`[{a['name'].upper()}]`]({get_wiki_link(a['name'])})**\n`┕ {a['date']}`" for a in active])
         embeds.append({"title": "✅ Active Events", "color": 0x2ECC71, "description": active_desc})
 
     if upcoming:
-        up_desc = "\n".join([f"⏳ **[`[{u['name'].upper()}]`](https://tibia.fandom.com/wiki/{u['name'].replace(' ', '_')})**\n`┕ {u['date']}`" for u in upcoming])
+        # Emojis removed to prevent link breakage within the Discord markdown
+        up_desc = "\n".join([f"⏳ **[`[{u['name'].upper()}]`]({get_wiki_link(u['name'])})**\n`┕ {u['date']}`" for u in upcoming])
         embeds.append({"title": "⏳ Upcoming Events", "color": 0x3498DB, "description": up_desc})
 
     if embeds:
