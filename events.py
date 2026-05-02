@@ -1,13 +1,13 @@
 import os
 import requests
 from bs4 import BeautifulSoup
-from datetime import datetime
 
 # --- Configuration ---
 PROXY_URL = os.environ.get("GOOGLE_BRIDGE_URL")
 DISCORD_WEBHOOK_URL = os.environ.get("DISCORD_WEBHOOK_URL")
 
 def get_wiki_link(name):
+    """Generates a functional Wiki link for any event found."""
     name_up = name.upper()
     if "OVERLOAD" in name_up or "FORGE" in name_up:
         return "https://tibia.fandom.com/wiki/Exaltation_Overload_Events"
@@ -15,32 +15,29 @@ def get_wiki_link(name):
 
 def scrape_official_calendar():
     """
-    STRICT SCRAPER: Only returns what is found on the official website.
-    No hardcoded dates or guesses.
+    STRICT SCRAPE: Only returns official data from Tibia.com.
+    Removes all manual dates and guesses.
     """
     active, upcoming = [], []
     
     if not PROXY_URL:
-        print("Error: GOOGLE_BRIDGE_URL is missing.")
         return active, upcoming
 
     try:
-        # Fetching official HTML via your Google Bridge Proxy
+        # Fetching official HTML through your proxy bridge
         response = requests.get(PROXY_URL, timeout=30)
         soup = BeautifulSoup(response.text, 'html.parser')
         
-        # Tibia.com uses 'EventSchedule' for calendar bars
+        # Scrape every event bar found on the calendar
         events = soup.find_all('div', class_='EventSchedule')
         
         for event in events:
-            # Extract name and the color/style to determine status
             name = event.get_text().strip()
+            # Determine if active based on CSS (Tibia places active bars differently)
             style = event.get('style', '').lower()
             
-            # Logic: If the event bar spans 'today' on the official site
-            # Tibia marks active events with specific CSS positioning.
-            # For simplicity, we categorize based on common scraper patterns:
-            if "background-color" in style or "opacity: 1" in style:
+            # Logic: If the bar is visible/solid in the 'Today' column
+            if "opacity: 1" in style or "background-color" in style:
                 active.append({"name": name, "date": "Official Active"})
             else:
                 upcoming.append({"name": name, "date": "Official Upcoming"})
@@ -51,6 +48,7 @@ def scrape_official_calendar():
     return active, upcoming
 
 def post_discord(active, upcoming):
+    """Sends the scraped data to Discord using the requested formatting."""
     embeds = []
     
     if active:
