@@ -1,68 +1,73 @@
 import os
 import requests
-from bs4 import BeautifulSoup
 
 # --- Configuration ---
 PROXY_URL = os.environ.get("GOOGLE_BRIDGE_URL")
 DISCORD_WEBHOOK_URL = os.environ.get("DISCORD_WEBHOOK_URL")
 
+# These are the official names we want to find
+# We use partial names to ensure matches even if HTML tags are in the way
+EVENT_KEYWORDS = {
+    "DOUBLE XP": "DOUBLE XP AND SKILL",
+    "SPRING INTO": "SPRING INTO LIFE",
+    "CHYLLFROEST": "CHYLLFROEST",
+    "LULLABY": "DEMON'S LULLABY",
+    "RAPID RESPAWN": "RAPID RESPAWN",
+    "DOUBLE LOOT": "DOUBLE LOOT",
+    "OVERLOAD": "EXALTATION OVERLOAD",
+    "BEWITCHED": "BEWITCHED"
+}
+
 def get_wiki_link(name):
     name_up = name.upper()
-    if "OVERLOAD" in name_up or "FORGE" in name_up:
+    if "OVERLOAD" in name_up:
         return "https://tibia.fandom.com/wiki/Exaltation_Overload_Events"
     return f"https://tibia.fandom.com/wiki/{name.replace(' ', '_')}"
 
-def scrape_official_calendar():
-    active, upcoming = [], []
+def scrape_broad_search():
+    found = []
     if not PROXY_URL:
-        return active, upcoming
+        return found
 
     try:
-        # Reverting to the logic that worked in the beginning
-        response = requests.get(PROXY_URL, timeout=30)
-        soup = BeautifulSoup(response.text, 'html.parser')
+        headers = {"User-Agent": "Mozilla/5.0"}
+        response = requests.get(PROXY_URL, headers=headers, timeout=30)
         
-        # Look for the specific div class Tibia uses for the calendar bars
-        events = soup.find_all('div', class_='EventSchedule')
+        # Convert the entire HTML source to Uppercase for easier matching
+        content = response.text.upper()
         
-        for event in events:
-            name = event.get_text().strip()
-            # If the name is empty or just whitespace, skip it
-            if not name:
-                continue
-                
-            style = event.get('style', '').lower()
-            
-            # Reverting status logic: 
-            # If it has a background color or is positioned at the start, it's active.
-            if "background-color" in style or "left:0%" in style or "left: 0%" in style:
-                active.append({"name": name, "date": "Active Now"})
-            else:
-                upcoming.append({"name": name, "date": "Starts Soon"})
+        print(f"DEBUG: Scanned {len(content)} characters.")
+
+        for key, full_name in EVENT_KEYWORDS.items():
+            if key in content:
+                print(f"DEBUG: Found {full_name}")
+                found.append({"name": full_name, "date": "Official Event"})
                 
     except Exception as e:
-        print(f"Proxy Error: {e}")
+        print(f"Scraper Error: {e}")
             
-    return active, upcoming
+    return found
 
-def post_discord(active, upcoming):
-    embeds = []
+def post_discord(events):
+    if not events:
+        print("Final Status: No events found in HTML content.")
+        return
+
+    # Using your preferred formatting
+    active_desc = "\n".join([f"🚀 **[`[{e['name'].upper()}]`]({get_wiki_link(e['name'])})**\n`┕ {e['date']}`" for e in events])
     
-    # Strictly only post what was found in the scrape
-    if active:
-        active_desc = "\n".join([f"🚀 **[`[{a['name'].upper()}]`]({get_wiki_link(a['name'])})**\n`┕ {a['date']}`" for a in active])
-        embeds.append({"title": "✅ Active Events", "color": 0x2ECC71, "description": active_desc})
+    payload = {
+        "embeds": [{
+            "title": "✅ Official Event Tracker",
+            "color": 0x2ECC71,
+            "description": active_desc
+        }]
+    }
 
-    if upcoming:
-        up_desc = "\n".join([f"⏳ **[`[{u['name'].upper()}]`]({get_wiki_link(u['name'])})**\n`┕ {u['date']}`" for u in upcoming])
-        embeds.append({"title": "⏳ Upcoming Events", "color": 0x3498DB, "description": up_desc})
-
-    if embeds:
-        requests.post(DISCORD_WEBHOOK_URL, json={"embeds": embeds})
-    else:
-        print("No events found on the page to post.")
+    resp = requests.post(DISCORD_WEBHOOK_URL, json=payload)
+    print(f"Discord Response: {resp.status_code}")
 
 if __name__ == "__main__":
     if DISCORD_WEBHOOK_URL:
-        act, upc = scrape_official_calendar()
-        post_discord(act, upc)
+        results = scrape_broad_search()
+        post_discord(results)
