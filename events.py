@@ -5,12 +5,18 @@ import requests
 PROXY_URL = os.environ.get("GOOGLE_BRIDGE_URL")
 DISCORD_WEBHOOK_URL = os.environ.get("DISCORD_WEBHOOK_URL")
 
-# Official event names to look for in the raw HTML
-OFFICIAL_KEYWORDS = [
-    "DOUBLE XP AND SKILL", "SPRING INTO LIFE", "CHYLLFROEST", 
-    "DEMON'S LULLABY", "RAPID RESPAWN", "DOUBLE LOOT", "BEWITCHED",
-    "EXALTATION OVERLOAD", "RISE OF DEVOVORGA"
-]
+# We use simpler, shorter keywords to make matching more reliable
+KEYWORDS = {
+    "DOUBLE XP": "DOUBLE XP AND SKILL",
+    "SPRING INTO": "SPRING INTO LIFE",
+    "CHYLLFROEST": "CHYLLFROEST",
+    "LULLABY": "DEMON'S LULLABY",
+    "RAPID RESPAWN": "RAPID RESPAWN",
+    "DOUBLE LOOT": "DOUBLE LOOT",
+    "OVERLOAD": "EXALTATION OVERLOAD",
+    "DEVOVORGA": "RISE OF DEVOVORGA",
+    "BEWITCHED": "BEWITCHED"
+}
 
 def get_wiki_link(name):
     name_up = name.upper()
@@ -19,42 +25,50 @@ def get_wiki_link(name):
     return f"https://tibia.fandom.com/wiki/{name.replace(' ', '_')}"
 
 def scrape_official_calendar():
-    """
-    Switches to a text-scan method to bypass fragile HTML structures.
-    """
-    active = []
+    found = []
     if not PROXY_URL:
-        return active
+        return found
 
     try:
-        response = requests.get(PROXY_URL, timeout=30)
-        # Scan the entire text of the page for our keywords
-        raw_html = response.text.upper()
+        # Fetch content with real browser headers
+        headers = {"User-Agent": "Mozilla/5.0"}
+        response = requests.get(PROXY_URL, headers=headers, timeout=30)
         
-        for kw in OFFICIAL_KEYWORDS:
-            if kw in raw_html:
-                # If found, it exists on the official calendar today
-                active.append({"name": kw.title(), "date": "Official Event"})
+        # Use .[span_2](start_span)casefold() - it's like lowercase but much stronger for matching[span_2](end_span)
+        content = response.text.casefold()
+        
+        print(f"DEBUG: Scanned {len(content)} characters from Tibia.com")
+
+        for key, full_name in KEYWORDS.[span_3](start_span)items():
+            # Search for the lowercase version of the keyword[span_3](end_span)
+            if key.casefold() in content:
+                print(f"DEBUG: MATCH FOUND -> {full_name}")
+                found.append({"name": full_name, "date": "Official Event"})
                 
     except Exception as e:
-        print(f"Proxy Error: {e}")
+        print(f"Scraper Error: {e}")
             
-    return active
+    return found
 
-def post_discord(active):
-    if not active:
-        # This will now show in your GitHub log if the text scan fails
-        print("Scraper found 0 keywords in the raw HTML.")
+def post_discord(events):
+    if not events:
+        print("Final Status: No official keywords found in page source.")
         return
 
-    embeds = []
-    # All found keywords are officially on the calendar
-    active_desc = "\n".join([f"🚀 **[`[{a['name'].upper()}]`]({get_wiki_link(a['name'])})**\n`┕ {a['date']}`" for a in active])
-    embeds.append({"title": "✅ Official Events", "color": 0x2ECC71, "description": active_desc})
+    active_desc = "\n".join([f"🚀 **[`[{e['name'].upper()}]`]({get_wiki_link(e['name'])})**\n`┕ {e['date']}`" for e in events])
+    
+    payload = {
+        "embeds": [{
+            "title": "✅ Official Event Tracker",
+            "color": 0x2ECC71,
+            "description": active_desc
+        }]
+    }
 
-    requests.post(DISCORD_WEBHOOK_URL, json={"embeds": embeds})
+    resp = requests.post(DISCORD_WEBHOOK_URL, json=payload)
+    print(f"Discord Response: {resp.status_code}")
 
 if __name__ == "__main__":
     if DISCORD_WEBHOOK_URL:
-        found_events = scrape_official_calendar()
-        post_discord(found_events)
+        results = scrape_official_calendar()
+        post_discord(results)
