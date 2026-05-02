@@ -1,76 +1,78 @@
 import os
 import requests
 from bs4 import BeautifulSoup
+from datetime import datetime
 
-# --- Configuration ---
-PROXY_URL = os.environ.get("GOOGLE_BRIDGE_URL")
+[span_2](start_span)# --- Configuration ---
+# Point this to the Wiki Upcoming Events page[span_2](end_span)
+WIKI_URL = "https://tibia.fandom.com/wiki/Upcoming_Events"
 DISCORD_WEBHOOK_URL = os.environ.get("DISCORD_WEBHOOK_URL")
 
-# Short, reliable keywords to match visible text
-KEYWORDS = {
-    "double xp": "DOUBLE XP AND SKILL",
-    "spring into": "SPRING INTO LIFE",
-    "chyllfroest": "CHYLLFROEST",
-    "lullaby": "DEMON'S LULLABY",
-    "rapid respawn": "RAPID RESPAWN",
-    "double loot": "DOUBLE LOOT",
-    "overload": "EXALTATION OVERLOAD",
-    "devovorga": "RISE OF DEVOVORGA",
-    "bewitched": "BEWITCHED"
-}
+# Keywords to match specifically against the Wiki's list
+KEYWORDS = [
+    "DOUBLE XP", "SPRING INTO LIFE", "CHYLLFROEST", 
+    "DEMON'S LULLABY", "RAPID RESPAWN", "DOUBLE LOOT", 
+    "EXALTATION OVERLOAD", "BEWITCHED", "GRIMVALE"
+]
 
 def get_wiki_link(name):
-    """Generates the official Wiki URL for the event."""
     name_up = name.upper()
-    if "OVERLOAD" in name_up or "FORGE" in name_up:
+    if "OVERLOAD" in name_up:
         return "https://tibia.fandom.com/wiki/Exaltation_Overload_Events"
     return f"https://tibia.fandom.com/wiki/{name.replace(' ', '_')}"
 
-def scrape_official_calendar():
-    found = []
-    if not PROXY_URL:
-        return found
-
+def scrape_wiki_events():
+    active, upcoming = [], []
+    today = datetime.now()
+    
     try:
         headers = {"User-Agent": "Mozilla/5.0"}
-        response = requests.get(PROXY_URL, headers=headers, timeout=30)
-        
-        # Use BeautifulSoup to strip HTML tags and get clean visible text
+        response = requests.get(WIKI_URL, headers=headers, timeout=30)
         soup = BeautifulSoup(response.text, 'html.parser')
-        clean_text = soup.get_text(separator=' ', strip=True).casefold()
         
-        print(f"DEBUG: Scanned {len(clean_text)} characters of clean text.")
-
-        for key, full_name in KEYWORDS.items():
-            if key.casefold() in clean_text:
-                print(f"DEBUG: Found {full_name}")
-                found.append({"name": full_name, "date": "Official Event"})
-                
-    except Exception as e:
-        print(f"Scraper Error: {e}")
+        [span_3](start_span)# The Wiki lists events in clear <li> tags[span_3](end_span)
+        event_elements = soup.find_all('li')
+        
+        for element in event_elements:
+            text = element.get_text()
+            text_up = text.upper()
             
-    return found
+            [span_4](start_span)# Check if any of our major keywords are in this list item
+            for kw in KEYWORDS:
+                if kw in text_up:
+                    # Clean the string to get just the name and date
+                    # Example text: "Demon's Lullaby will start in 6 days on May 7."[span_4](end_span)
+                    event_info = text.split('.')[0] # Take the first sentence
+                    
+                    if "START IN" in text_up:
+                        upcoming.append({"name": kw, "data": event_info})
+                    else:
+                        # If it doesn't say "will start", it's currently active
+                        active.append({"name": kw, "data": event_info})
+                    break # Found the keyword, move to next <li>
 
-def post_discord(events):
-    if not events:
-        print("No events found in clean text.")
+    except Exception as e:
+        print(f"Wiki Scraper Error: {e}")
+            
+    return active, upcoming
+
+def post_discord(active, upcoming):
+    if not active and not upcoming:
+        print("Final Status: No matches found on Wiki.")
         return
 
-    # Formats the event list into the black "pill" buttons
-    active_desc = "\n".join([f"🚀 **[`[{e['name'].upper()}]`]({get_wiki_link(e['name'])})**\n`┕ {e['date']}`" for e in events])
-    
-    payload = {
-        "embeds": [{
-            "title": "✅ Official Event Tracker",
-            "color": 0x2ECC71,
-            "description": active_desc
-        }]
-    }
+    embeds = []
+    if active:
+        active_desc = "\n".join([f"🚀 **[`[{a['name'].upper()}]`]({get_wiki_link(a['name'])})**\n`┕ {a['data']}`" for a in active])
+        embeds.append({"title": "✅ Active Events", "color": 0x2ECC71, "description": active_desc})
 
-    resp = requests.post(DISCORD_WEBHOOK_URL, json=payload)
-    print(f"Discord Response: {resp.status_code}")
+    if upcoming:
+        up_desc = "\n".join([f"⏳ **[`[{u['name'].upper()}]`]({get_wiki_link(u['name'])})**\n`┕ {u['data']}`" for u in upcoming])
+        embeds.append({"title": "⏳ Upcoming Events", "color": 0x3498DB, "description": up_desc})
+
+    requests.post(DISCORD_WEBHOOK_URL, json={"embeds": embeds})
 
 if __name__ == "__main__":
     if DISCORD_WEBHOOK_URL:
-        results = scrape_official_calendar()
-        post_discord(results)
+        act, upc = scrape_wiki_events()
+        post_discord(act, upc)
