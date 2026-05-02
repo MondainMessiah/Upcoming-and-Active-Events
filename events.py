@@ -1,11 +1,12 @@
 import os
 import requests
+from bs4 import BeautifulSoup
 
 # --- Configuration ---
 PROXY_URL = os.environ.get("GOOGLE_BRIDGE_URL")
 DISCORD_WEBHOOK_URL = os.environ.get("DISCORD_WEBHOOK_URL")
 
-# Keywords are shorter to avoid failing on special characters like apostrophes
+# Short, reliable keywords to match visible text
 KEYWORDS = {
     "double xp": "DOUBLE XP AND SKILL",
     "spring into": "SPRING INTO LIFE",
@@ -19,6 +20,7 @@ KEYWORDS = {
 }
 
 def get_wiki_link(name):
+    """Generates the official Wiki URL for the event."""
     name_up = name.upper()
     if "OVERLOAD" in name_up or "FORGE" in name_up:
         return "https://tibia.fandom.com/wiki/Exaltation_Overload_Events"
@@ -33,13 +35,14 @@ def scrape_official_calendar():
         headers = {"User-Agent": "Mozilla/5.0"}
         response = requests.get(PROXY_URL, headers=headers, timeout=30)
         
-        # .casefold() makes the search case-insensitive
-        content = response.text.casefold()
+        # Use BeautifulSoup to strip HTML tags and get clean visible text
+        soup = BeautifulSoup(response.text, 'html.parser')
+        clean_text = soup.get_text(separator=' ', strip=True).casefold()
         
-        print(f"DEBUG: Scanned {len(content)} characters.")
+        print(f"DEBUG: Scanned {len(clean_text)} characters of clean text.")
 
         for key, full_name in KEYWORDS.items():
-            if key.casefold() in content:
+            if key.casefold() in clean_text:
                 print(f"DEBUG: Found {full_name}")
                 found.append({"name": full_name, "date": "Official Event"})
                 
@@ -50,10 +53,10 @@ def scrape_official_calendar():
 
 def post_discord(events):
     if not events:
-        print("No events found to post.")
+        print("No events found in clean text.")
         return
 
-    # Consistent with your successful Discord layout
+    # Formats the event list into the black "pill" buttons
     active_desc = "\n".join([f"🚀 **[`[{e['name'].upper()}]`]({get_wiki_link(e['name'])})**\n`┕ {e['date']}`" for e in events])
     
     payload = {
