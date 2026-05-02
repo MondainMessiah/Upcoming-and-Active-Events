@@ -1,10 +1,16 @@
 import os
 import requests
-from bs4 import BeautifulSoup
 
 # --- Configuration ---
 PROXY_URL = os.environ.get("GOOGLE_BRIDGE_URL")
 DISCORD_WEBHOOK_URL = os.environ.get("DISCORD_WEBHOOK_URL")
+
+# Official event names to look for in the raw HTML
+OFFICIAL_KEYWORDS = [
+    "DOUBLE XP AND SKILL", "SPRING INTO LIFE", "CHYLLFROEST", 
+    "DEMON'S LULLABY", "RAPID RESPAWN", "DOUBLE LOOT", "BEWITCHED",
+    "EXALTATION OVERLOAD", "RISE OF DEVOVORGA"
+]
 
 def get_wiki_link(name):
     name_up = name.upper()
@@ -14,57 +20,41 @@ def get_wiki_link(name):
 
 def scrape_official_calendar():
     """
-    Improved Strict Scraper: Collects all scheduled events and 
-    sorts them without relying on fragile CSS opacity checks.
+    Switches to a text-scan method to bypass fragile HTML structures.
     """
-    active, upcoming = [], []
-    
+    active = []
     if not PROXY_URL:
-        return active, upcoming
+        return active
 
     try:
         response = requests.get(PROXY_URL, timeout=30)
-        soup = BeautifulSoup(response.text, 'html.parser')
+        # Scan the entire text of the page for our keywords
+        raw_html = response.text.upper()
         
-        # All event bars on the calendar
-        events = soup.find_all('div', class_='EventSchedule')
-        
-        for event in events:
-            name = event.get_text().strip()
-            if not name: continue
-            
-            # Tibia's calendar uses 'left' and 'width' to position events.
-            # Events starting at 'left: 0%' are currently active.
-            style = event.get('style', '').lower()
-            
-            if "left: 0%" in style or "left:0%" in style:
-                active.append({"name": name, "date": "Active Now"})
-            else:
-                upcoming.append({"name": name, "date": "Starts Soon"})
+        for kw in OFFICIAL_KEYWORDS:
+            if kw in raw_html:
+                # If found, it exists on the official calendar today
+                active.append({"name": kw.title(), "date": "Official Event"})
                 
     except Exception as e:
         print(f"Proxy Error: {e}")
             
-    return active, upcoming
+    return active
 
-def post_discord(active, upcoming):
-    if not active and not upcoming:
-        print("Scraper found 0 events. Check if GOOGLE_BRIDGE_URL is returning HTML.")
+def post_discord(active):
+    if not active:
+        # This will now show in your GitHub log if the text scan fails
+        print("Scraper found 0 keywords in the raw HTML.")
         return
 
     embeds = []
-    if active:
-        active_desc = "\n".join([f"🚀 **[`[{a['name'].upper()}]`]({get_wiki_link(a['name'])})**\n`┕ {a['date']}`" for a in active])
-        embeds.append({"title": "✅ Active Events", "color": 0x2ECC71, "description": active_desc})
+    # All found keywords are officially on the calendar
+    active_desc = "\n".join([f"🚀 **[`[{a['name'].upper()}]`]({get_wiki_link(a['name'])})**\n`┕ {a['date']}`" for a in active])
+    embeds.append({"title": "✅ Official Events", "color": 0x2ECC71, "description": active_desc})
 
-    if upcoming:
-        up_desc = "\n".join([f"⏳ **[`[{u['name'].upper()}]`]({get_wiki_link(u['name'])})**\n`┕ {u['date']}`" for u in upcoming])
-        embeds.append({"title": "⏳ Upcoming Events", "color": 0x3498DB, "description": up_desc})
-
-    response = requests.post(DISCORD_WEBHOOK_URL, json={"embeds": embeds})
-    print(f"Discord Response: {response.status_code}")
+    requests.post(DISCORD_WEBHOOK_URL, json={"embeds": embeds})
 
 if __name__ == "__main__":
     if DISCORD_WEBHOOK_URL:
-        act, upc = scrape_official_calendar()
-        post_discord(act, upc)
+        found_events = scrape_official_calendar()
+        post_discord(found_events)
