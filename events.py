@@ -1,73 +1,68 @@
 import os
 import requests
+from lxml import html
 
 # --- Configuration ---
 PROXY_URL = os.environ.get("GOOGLE_BRIDGE_URL")
 DISCORD_WEBHOOK_URL = os.environ.get("DISCORD_WEBHOOK_URL")
 
-# These are the official names we want to find
-# We use partial names to ensure matches even if HTML tags are in the way
-EVENT_KEYWORDS = {
-    "DOUBLE XP": "DOUBLE XP AND SKILL",
-    "SPRING INTO": "SPRING INTO LIFE",
-    "CHYLLFROEST": "CHYLLFROEST",
-    "LULLABY": "DEMON'S LULLABY",
-    "RAPID RESPAWN": "RAPID RESPAWN",
-    "DOUBLE LOOT": "DOUBLE LOOT",
-    "OVERLOAD": "EXALTATION OVERLOAD",
-    "BEWITCHED": "BEWITCHED"
-}
-
 def get_wiki_link(name):
-    name_up = name.upper()
-    if "OVERLOAD" in name_up:
-        return "https://tibia.fandom.com/wiki/Exaltation_Overload_Events"
     return f"https://tibia.fandom.com/wiki/{name.replace(' ', '_')}"
 
-def scrape_broad_search():
-    found = []
+def scrape_by_xpath():
+    active, upcoming = [], []
     if not PROXY_URL:
-        return found
+        return active, upcoming
 
     try:
         headers = {"User-Agent": "Mozilla/5.0"}
         response = requests.get(PROXY_URL, headers=headers, timeout=30)
         
-        # Convert the entire HTML source to Uppercase for easier matching
-        content = response.text.upper()
+        # Convert the HTML into a searchable tree
+        tree = html.fromstring(response.content)
         
-        print(f"DEBUG: Scanned {len(content)} characters.")
+        # Your specific XPath location
+        xpath_table = "/html/body/div[3]/div[3]/div[3]/div[5]/div/div/div[1]/div/table"
+        
+        # Find all event divs within that specific table
+        # EventSchedule is the class name CipSoft uses for the colored bars
+        events = tree.xpath(f"{xpath_table}//div[@class='EventSchedule']")
 
-        for key, full_name in EVENT_KEYWORDS.items():
-            if key in content:
-                print(f"DEBUG: Found {full_name}")
-                found.append({"name": full_name, "date": "Official Event"})
-                
-    except Exception as e:
-        print(f"Scraper Error: {e}")
+        for event in events:
+            # .text_content() gets the text even if it's inside <span> tags
+            name = event.text_content().strip()
+            if not name: continue
+
+            # Inspect the 'style' for 'left: 0%' to see if it's happening TODAY
+            style = event.get('style', '').lower()
             
-    return found
+            if "left: 0%" in style or "left:0%" in style:
+                active.append({"name": name, "status": "Active Now"})
+            else:
+                upcoming.append({"name": name, "status": "Upcoming"})
 
-def post_discord(events):
-    if not events:
-        print("Final Status: No events found in HTML content.")
+    except Exception as e:
+        print(f"XPath Scraper Error: {e}")
+            
+    return active, upcoming
+
+def post_discord(active, upcoming):
+    if not active and not upcoming:
+        print("XPath check complete: No events found at that location.")
         return
 
-    # Using your preferred formatting
-    active_desc = "\n".join([f"🚀 **[`[{e['name'].upper()}]`]({get_wiki_link(e['name'])})**\n`┕ {e['date']}`" for e in events])
-    
-    payload = {
-        "embeds": [{
-            "title": "✅ Official Event Tracker",
-            "color": 0x2ECC71,
-            "description": active_desc
-        }]
-    }
+    embeds = []
+    if active:
+        desc = "\n".join([f"🚀 **[`[{a['name'].upper()}]`]({get_wiki_link(a['name'])})**\n`┕ {a['status']}`" for a in active])
+        embeds.append({"title": "✅ Active Events", "color": 0x2ECC71, "description": desc})
 
-    resp = requests.post(DISCORD_WEBHOOK_URL, json=payload)
-    print(f"Discord Response: {resp.status_code}")
+    if upcoming:
+        desc = "\n".join([f"⏳ **[`[{u['name'].upper()}]`]({get_wiki_link(u['name'])})**\n`┕ {u['status']}`" for u in upcoming])
+        embeds.append({"title": "⏳ Upcoming Events", "color": 0x3498DB, "description": desc})
+
+    requests.post(DISCORD_WEBHOOK_URL, json={"embeds": embeds})
 
 if __name__ == "__main__":
     if DISCORD_WEBHOOK_URL:
-        results = scrape_broad_search()
-        post_discord(results)
+        act, upc = scrape_by_xpath()
+        post_discord(act, upc)
