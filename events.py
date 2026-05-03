@@ -2,11 +2,8 @@ import os
 import requests
 import re
 
-# --- Configuration ---
 PROXY_URL = os.environ.get("GOOGLE_BRIDGE_URL")
 DISCORD_WEBHOOK_URL = os.environ.get("DISCORD_WEBHOOK_URL")
-
-# The actual page we want the Bridge to fetch for us
 TARGET_TIBIA_URL = "https://www.tibia.com/news/?subtopic=eventcalendar"
 
 def get_wiki_link(name):
@@ -23,17 +20,22 @@ def scrape_bridge():
         headers = {"User-Agent": "Mozilla/5.0"}
         print(f"Asking Google Bridge to fetch: {TARGET_TIBIA_URL}")
         
-        # THE FIX: We pass the URL as a parameter so the Apps Script knows where to go
         response = requests.get(PROXY_URL, params={"url": TARGET_TIBIA_URL}, headers=headers, timeout=30)
-        
         raw_html = response.text
+        
         print(f"DEBUG: The Bridge returned {len(raw_html)} characters.")
         
-        # 1. Isolate the calendar table strictly so we ignore EVERYTHING else
+        # 1. Isolate the calendar table strictly
         calendar_match = re.search(r'<table[^>]*id="eventscheduletable"[^>]*>(.*?)</table>', raw_html, re.IGNORECASE | re.DOTALL)
         
         if not calendar_match:
             print("ERROR: 'eventscheduletable' not found. Bridge did not return the calendar.")
+            print("\n--- HERE IS WHAT THE BRIDGE ACTUALLY SAW (Top & Bottom) ---")
+            print(raw_html[:800]) # Prints the top of the blocked page
+            print("\n...\n")
+            if len(raw_html) > 800:
+                print(raw_html[-800:]) # Prints the bottom of the blocked page
+            print("-----------------------------------------------------------\n")
             return []
 
         calendar_html = calendar_match.group(1)
@@ -71,6 +73,5 @@ def post_discord(events):
     print(f"Discord Response: {resp.status_code}")
 
 if __name__ == "__main__":
-    if DISCORD_WEBHOOK_URL:
-        results = scrape_bridge()
-        post_discord(results)
+    results = scrape_bridge()
+    post_discord(results)
