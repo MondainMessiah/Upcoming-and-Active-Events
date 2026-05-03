@@ -1,8 +1,9 @@
 import os
-import requests
 import re
+import cloudscraper
+import requests
 
-PROXY_URL = os.environ.get("GOOGLE_BRIDGE_URL")
+# --- Configuration ---
 DISCORD_WEBHOOK_URL = os.environ.get("DISCORD_WEBHOOK_URL")
 TARGET_TIBIA_URL = "https://www.tibia.com/news/?subtopic=eventcalendar"
 
@@ -10,34 +11,35 @@ def get_wiki_link(name):
     clean_name = name.replace("XP/Skill Event", "Double XP and Skill").replace("'", "").replace(" ", "_")
     return f"https://tibia.fandom.com/wiki/{clean_name}"
 
-def scrape_bridge():
-    if not PROXY_URL:
-        print("Error: GOOGLE_BRIDGE_URL is missing.")
-        return []
-
+def scrape_tibia_direct():
     events = set()
     try:
-        headers = {"User-Agent": "Mozilla/5.0"}
-        print(f"Asking Google Bridge to fetch: {TARGET_TIBIA_URL}")
+        print(f"Bypassing Cloudflare and fetching: {TARGET_TIBIA_URL}")
         
-        response = requests.get(PROXY_URL, params={"url": TARGET_TIBIA_URL}, headers=headers, timeout=30)
+        # Initialize the Cloudflare-bypassing scraper
+        scraper = cloudscraper.create_scraper(browser={
+            'browser': 'chrome',
+            'platform': 'windows',
+            'desktop': True
+        })
+        
+        response = scraper.get(TARGET_TIBIA_URL, timeout=30)
         raw_html = response.text
         
-        print(f"DEBUG: The Bridge returned {len(raw_html)} characters.")
+        print(f"DEBUG: Cloudscraper returned {len(raw_html)} characters.")
         
         # 1. Isolate the calendar table strictly
         calendar_match = re.search(r'<table[^>]*id="eventscheduletable"[^>]*>(.*?)</table>', raw_html, re.IGNORECASE | re.DOTALL)
         
         if not calendar_match:
-            print("ERROR: 'eventscheduletable' not found. Bridge did not return the calendar.")
-            print("\n--- HERE IS WHAT THE BRIDGE ACTUALLY SAW (Top & Bottom) ---")
-            print(raw_html[:800]) # Prints the top of the blocked page
-            print("\n...\n")
-            if len(raw_html) > 800:
-                print(raw_html[-800:]) # Prints the bottom of the blocked page
-            print("-----------------------------------------------------------\n")
+            print("ERROR: 'eventscheduletable' not found. Cloudflare might still be blocking us.")
+            # Print the title to confirm if we got through
+            title_match = re.search(r'<title>(.*?)</title>', raw_html, re.IGNORECASE)
+            if title_match:
+                print(f"DEBUG: Page Title seen -> {title_match.group(1).strip()}")
             return []
 
+        print("Successfully bypassed Cloudflare and found the calendar table!")
         calendar_html = calendar_match.group(1)
 
         # 2. Extract the text directly from the colored event boxes
@@ -56,7 +58,7 @@ def scrape_bridge():
 
 def post_discord(events):
     if not events:
-        print("Final Status: No colored event bars found via the Bridge.")
+        print("Final Status: No colored event bars found.")
         return
 
     active_desc = "\n".join([f"🚀 **[`[{e.upper()}]`]({get_wiki_link(e)})**\n`┕ Official Calendar`" for e in events])
@@ -73,5 +75,8 @@ def post_discord(events):
     print(f"Discord Response: {resp.status_code}")
 
 if __name__ == "__main__":
-    results = scrape_bridge()
-    post_discord(results)
+    if DISCORD_WEBHOOK_URL:
+        results = scrape_tibia_direct()
+        post_discord(results)
+    else:
+        print("Error: DISCORD_WEBHOOK_URL is missing from environment variables.")
