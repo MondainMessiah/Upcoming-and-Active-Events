@@ -1,6 +1,5 @@
 import os
 import requests
-from bs4 import BeautifulSoup
 import re
 
 # --- Configuration ---
@@ -8,64 +7,57 @@ PROXY_URL = os.environ.get("GOOGLE_BRIDGE_URL")
 DISCORD_WEBHOOK_URL = os.environ.get("DISCORD_WEBHOOK_URL")
 
 def get_wiki_link(name):
-    # Clean name for Wiki URL (e.g., "XP/Skill Event" -> "Double_XP_and_Skill")
     clean_name = name.replace("XP/Skill Event", "Double XP and Skill").replace("'", "").replace(" ", "_")
     return f"https://tibia.fandom.com/wiki/{clean_name}"
 
-def scrape_tibia_table():
-    active_events = set() # Use a set to avoid duplicates from different calendar days
-    
+def scrape_strict_calendar():
     if not PROXY_URL:
+        print("Error: GOOGLE_BRIDGE_URL is missing.")
         return []
 
+    events = set()
     try:
         headers = {"User-Agent": "Mozilla/5.0"}
         response = requests.get(PROXY_URL, headers=headers, timeout=30)
-        soup = BeautifulSoup(response.text, 'html.parser')
+        raw_html = response.text
         
-        # 1. Find the specific events schedule table you provided
-        table = soup.find('table', id='eventscheduletable')
-        if not table:
-            print("Table 'eventscheduletable' not found in HTML.")
+        # 1. Isolate ONLY the calendar table to ensure we ignore the rest of the website
+        calendar_match = re.search(r'<table[^>]*id="eventscheduletable"[^>]*>(.*?)</table>', raw_html, re.IGNORECASE | re.DOTALL)
+        
+        if not calendar_match:
+            print("ERROR: 'eventscheduletable' not found. The Bridge did not return the calendar HTML.")
             return []
 
-        # 2. Find all 'HelperDivIndicator' spans which contain the event text
-        # These are found inside the table cells <td>
-        indicators = table.find_all('span', class_='HelperDivIndicator')
+        calendar_html = calendar_match.group(1)
+
+        # 2. Extract the event names from the tooltip tags inside the table
+        # Matches: word-break: break-word;&quot;&gt;Chyllfroest:&lt;/div&gt;
+        # Also handles if the quotes are unescaped (") instead of (&quot;)
+        pattern = r'word-break: break-word;(?:&quot;|")&gt;(.*?):(?:&lt;|<)/div(?:&gt;|>)'
         
-        for span in indicators:
-            # The event name is often inside a div within this span
-            # Or hidden in the 'onmouseover' attribute
-            content = span.get_text(strip=True)
-            
-            # If the span has text like "XP/Skill Event", grab it
-            if content and content.startswith('*'):
-                active_events.add(content.replace('*', '').strip())
-            elif content:
-                active_events.add(content.strip())
-            
-            # Backup: Check the onmouseover attribute for the full name
-            mouse_over = span.get('onmouseover', '')
-            if "word-break: break-word;" in mouse_over:
-                # Use regex to pull the title out of the Javascript string
-                match = re.search(r'bold; word-break: break-word;">(.*?)[:<]', mouse_over)
-                if match:
-                    active_events.add(match.group(1).strip())
+        found_matches = re.findall(pattern, calendar_html, re.IGNORECASE)
+
+        for match in found_matches:
+            clean_name = match.strip()
+            # Ignore empty matches
+            if clean_name and len(clean_name) > 2:
+                events.add(clean_name)
 
     except Exception as e:
-        print(f"Table Scraper Error: {e}")
+        print(f"Scraper Error: {e}")
             
-    return sorted(list(active_events))
+    return sorted(list(events))
 
 def post_discord(events):
     if not events:
-        print("No events identified in the table.")
+        print("Final Status: No events populated from the calendar grid.")
         return
 
-    # Filter out empty strings and generic 'Prank Month' if desired
-    formatted_events = [e for e in events if e and len(e) > 3]
+    # Filter out generic month-long background events if you only want major ones
+    # Remove this line if you want "Flower Month" and "Prank Month" included
+    major_events = [e for e in events if "Month" not in e]
 
-    active_desc = "\n".join([f"🚀 **[`[{e.upper()}]`]({get_wiki_link(e)})**\n`┕ Official Event`" for e in formatted_events])
+    active_desc = "\n".join([f"🚀 **[`[{e.upper()}]`]({get_wiki_link(e)})**\n`┕ Official Calendar`" for e in major_events])
     
     payload = {
         "embeds": [{
@@ -75,9 +67,10 @@ def post_discord(events):
         }]
     }
 
-    requests.post(DISCORD_WEBHOOK_URL, json=payload)
+    resp = requests.post(DISCORD_WEBHOOK_URL, json=payload)
+    print(f"Discord Response: {resp.status_code}")
 
 if __name__ == "__main__":
     if DISCORD_WEBHOOK_URL:
-        found = scrape_tibia_table()
-        post_discord(found)
+        results = scrape_strict_calendar()
+        post_discord(results)
