@@ -1,68 +1,83 @@
 import os
 import requests
-from lxml import html
+from bs4 import BeautifulSoup
+import re
 
 # --- Configuration ---
 PROXY_URL = os.environ.get("GOOGLE_BRIDGE_URL")
 DISCORD_WEBHOOK_URL = os.environ.get("DISCORD_WEBHOOK_URL")
 
 def get_wiki_link(name):
-    return f"https://tibia.fandom.com/wiki/{name.replace(' ', '_')}"
+    # Clean name for Wiki URL (e.g., "XP/Skill Event" -> "Double_XP_and_Skill")
+    clean_name = name.replace("XP/Skill Event", "Double XP and Skill").replace("'", "").replace(" ", "_")
+    return f"https://tibia.fandom.com/wiki/{clean_name}"
 
-def scrape_by_xpath():
-    active, upcoming = [], []
+def scrape_tibia_table():
+    active_events = set() # Use a set to avoid duplicates from different calendar days
+    
     if not PROXY_URL:
-        return active, upcoming
+        return []
 
     try:
         headers = {"User-Agent": "Mozilla/5.0"}
         response = requests.get(PROXY_URL, headers=headers, timeout=30)
+        soup = BeautifulSoup(response.text, 'html.parser')
         
-        # Convert the HTML into a searchable tree
-        tree = html.fromstring(response.content)
-        
-        # Your specific XPath location
-        xpath_table = "/html/body/div[3]/div[3]/div[3]/div[5]/div/div/div[1]/div/table"
-        
-        # Find all event divs within that specific table
-        # EventSchedule is the class name CipSoft uses for the colored bars
-        events = tree.xpath(f"{xpath_table}//div[@class='EventSchedule']")
+        # 1. Find the specific events schedule table you provided
+        table = soup.find('table', id='eventscheduletable')
+        if not table:
+            print("Table 'eventscheduletable' not found in HTML.")
+            return []
 
-        for event in events:
-            # .text_content() gets the text even if it's inside <span> tags
-            name = event.text_content().strip()
-            if not name: continue
-
-            # Inspect the 'style' for 'left: 0%' to see if it's happening TODAY
-            style = event.get('style', '').lower()
+        # 2. Find all 'HelperDivIndicator' spans which contain the event text
+        # These are found inside the table cells <td>
+        indicators = table.find_all('span', class_='HelperDivIndicator')
+        
+        for span in indicators:
+            # The event name is often inside a div within this span
+            # Or hidden in the 'onmouseover' attribute
+            content = span.get_text(strip=True)
             
-            if "left: 0%" in style or "left:0%" in style:
-                active.append({"name": name, "status": "Active Now"})
-            else:
-                upcoming.append({"name": name, "status": "Upcoming"})
+            # If the span has text like "XP/Skill Event", grab it
+            if content and content.startswith('*'):
+                active_events.add(content.replace('*', '').strip())
+            elif content:
+                active_events.add(content.strip())
+            
+            # Backup: Check the onmouseover attribute for the full name
+            mouse_over = span.get('onmouseover', '')
+            if "word-break: break-word;" in mouse_over:
+                # Use regex to pull the title out of the Javascript string
+                match = re.search(r'bold; word-break: break-word;">(.*?)[:<]', mouse_over)
+                if match:
+                    active_events.add(match.group(1).strip())
 
     except Exception as e:
-        print(f"XPath Scraper Error: {e}")
+        print(f"Table Scraper Error: {e}")
             
-    return active, upcoming
+    return sorted(list(active_events))
 
-def post_discord(active, upcoming):
-    if not active and not upcoming:
-        print("XPath check complete: No events found at that location.")
+def post_discord(events):
+    if not events:
+        print("No events identified in the table.")
         return
 
-    embeds = []
-    if active:
-        desc = "\n".join([f"🚀 **[`[{a['name'].upper()}]`]({get_wiki_link(a['name'])})**\n`┕ {a['status']}`" for a in active])
-        embeds.append({"title": "✅ Active Events", "color": 0x2ECC71, "description": desc})
+    # Filter out empty strings and generic 'Prank Month' if desired
+    formatted_events = [e for e in events if e and len(e) > 3]
 
-    if upcoming:
-        desc = "\n".join([f"⏳ **[`[{u['name'].upper()}]`]({get_wiki_link(u['name'])})**\n`┕ {u['status']}`" for u in upcoming])
-        embeds.append({"title": "⏳ Upcoming Events", "color": 0x3498DB, "description": desc})
+    active_desc = "\n".join([f"🚀 **[`[{e.upper()}]`]({get_wiki_link(e)})**\n`┕ Official Event`" for e in formatted_events])
+    
+    payload = {
+        "embeds": [{
+            "title": "✅ Official Event Tracker",
+            "color": 0x2ECC71,
+            "description": active_desc
+        }]
+    }
 
-    requests.post(DISCORD_WEBHOOK_URL, json={"embeds": embeds})
+    requests.post(DISCORD_WEBHOOK_URL, json=payload)
 
 if __name__ == "__main__":
     if DISCORD_WEBHOOK_URL:
-        act, upc = scrape_by_xpath()
-        post_discord(act, upc)
+        found = scrape_tibia_table()
+        post_discord(found)
