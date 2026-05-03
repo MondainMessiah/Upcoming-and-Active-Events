@@ -2,7 +2,7 @@ import os
 import re
 import requests
 from playwright.sync_api import sync_playwright
-from playwright_stealth import stealth_sync
+from playwright_stealth import Stealth
 
 DISCORD_WEBHOOK_URL = os.environ.get("DISCORD_WEBHOOK_URL")
 TARGET_TIBIA_URL = "https://www.tibia.com/news/?subtopic=eventcalendar"
@@ -14,9 +14,11 @@ def get_wiki_link(name):
 def scrape_tibia_stealth():
     events = set()
     try:
-        print("Deploying Headed Browser + Stealth to bypass Cloudflare JS Challenge...")
-        with sync_playwright() as p:
-            # headless=False is the trick! The server uses Xvfb to provide a fake screen.
+        print("Deploying Headed Browser + Stealth (v2) to bypass Cloudflare JS Challenge...")
+        
+        # New API: Wraps the entire Playwright instance in Stealth mode automatically
+        with Stealth().use_sync(sync_playwright()) as p:
+            # headless=False pushes the browser to the invisible Xvfb monitor
             browser = p.chromium.launch(
                 headless=False, 
                 args=[
@@ -29,9 +31,6 @@ def scrape_tibia_stealth():
                 user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36'
             )
             page = context.new_page()
-            
-            # Inject the stealth plugin to hide our tracks
-            stealth_sync(page)
             
             page.goto(TARGET_TIBIA_URL, timeout=60000)
             print(f"DEBUG: Initial Page Title -> {page.title()}")
