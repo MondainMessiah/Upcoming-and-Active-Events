@@ -10,7 +10,7 @@ def get_wiki_link(name):
     clean_name = name.replace("XP/Skill Event", "Double XP and Skill").replace("'", "").replace(" ", "_")
     return f"https://tibia.fandom.com/wiki/{clean_name}"
 
-def scrape_strict_calendar():
+def scrape_colored_bars():
     if not PROXY_URL:
         print("Error: GOOGLE_BRIDGE_URL is missing.")
         return []
@@ -20,26 +20,25 @@ def scrape_strict_calendar():
         headers = {"User-Agent": "Mozilla/5.0"}
         response = requests.get(PROXY_URL, headers=headers, timeout=30)
         raw_html = response.text
-        
-        # 1. Isolate ONLY the calendar table to ensure we ignore the rest of the website
+
+        # 1. Isolate the calendar table
         calendar_match = re.search(r'<table[^>]*id="eventscheduletable"[^>]*>(.*?)</table>', raw_html, re.IGNORECASE | re.DOTALL)
         
         if not calendar_match:
-            print("ERROR: 'eventscheduletable' not found. The Bridge did not return the calendar HTML.")
+            print("ERROR: 'eventscheduletable' not found in the HTML.")
             return []
 
         calendar_html = calendar_match.group(1)
 
-        # 2. Extract the event names from the tooltip tags inside the table
-        # Matches: word-break: break-word;&quot;&gt;Chyllfroest:&lt;/div&gt;
-        # Also handles if the quotes are unescaped (") instead of (&quot;)
-        pattern = r'word-break: break-word;(?:&quot;|")&gt;(.*?):(?:&lt;|<)/div(?:&gt;|>)'
+        # 2. Look EXACTLY for the colored divs you pasted
+        # It matches: <div style="background:#24657b; ... ">*XP/Skill Event</div>
+        # And it automatically strips out the '*' character
+        bar_pattern = r'<div style="background:#[a-zA-Z0-9]+;[^>]*>\s*\*?(.*?)\s*</div>'
         
-        found_matches = re.findall(pattern, calendar_html, re.IGNORECASE)
+        found_bars = re.findall(bar_pattern, calendar_html, re.IGNORECASE)
 
-        for match in found_matches:
+        for match in found_bars:
             clean_name = match.strip()
-            # Ignore empty matches
             if clean_name and len(clean_name) > 2:
                 events.add(clean_name)
 
@@ -50,14 +49,10 @@ def scrape_strict_calendar():
 
 def post_discord(events):
     if not events:
-        print("Final Status: No events populated from the calendar grid.")
+        print("Final Status: No colored event bars found in the calendar.")
         return
 
-    # Filter out generic month-long background events if you only want major ones
-    # Remove this line if you want "Flower Month" and "Prank Month" included
-    major_events = [e for e in events if "Month" not in e]
-
-    active_desc = "\n".join([f"🚀 **[`[{e.upper()}]`]({get_wiki_link(e)})**\n`┕ Official Calendar`" for e in major_events])
+    active_desc = "\n".join([f"🚀 **[`[{e.upper()}]`]({get_wiki_link(e)})**\n`┕ Official Calendar`" for e in events])
     
     payload = {
         "embeds": [{
@@ -72,5 +67,5 @@ def post_discord(events):
 
 if __name__ == "__main__":
     if DISCORD_WEBHOOK_URL:
-        results = scrape_strict_calendar()
+        results = scrape_colored_bars()
         post_discord(results)
