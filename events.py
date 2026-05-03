@@ -1,7 +1,6 @@
 import os
 import re
-import cloudscraper
-import requests
+from curl_cffi import requests
 
 # --- Configuration ---
 DISCORD_WEBHOOK_URL = os.environ.get("DISCORD_WEBHOOK_URL")
@@ -11,35 +10,29 @@ def get_wiki_link(name):
     clean_name = name.replace("XP/Skill Event", "Double XP and Skill").replace("'", "").replace(" ", "_")
     return f"https://tibia.fandom.com/wiki/{clean_name}"
 
-def scrape_tibia_direct():
+def scrape_tibia_impersonate():
     events = set()
     try:
-        print(f"Bypassing Cloudflare and fetching: {TARGET_TIBIA_URL}")
+        print(f"Bypassing Cloudflare TLS Fingerprint: {TARGET_TIBIA_URL}")
         
-        # Initialize the Cloudflare-bypassing scraper
-        scraper = cloudscraper.create_scraper(browser={
-            'browser': 'chrome',
-            'platform': 'windows',
-            'desktop': True
-        })
-        
-        response = scraper.get(TARGET_TIBIA_URL, timeout=30)
+        # The magic parameter here is `impersonate="chrome"`. 
+        # It spoofs the deep network handshakes to match a real browser.
+        response = requests.get(TARGET_TIBIA_URL, impersonate="chrome", timeout=30)
         raw_html = response.text
         
-        print(f"DEBUG: Cloudscraper returned {len(raw_html)} characters.")
+        print(f"DEBUG: curl_cffi returned {len(raw_html)} characters.")
         
         # 1. Isolate the calendar table strictly
         calendar_match = re.search(r'<table[^>]*id="eventscheduletable"[^>]*>(.*?)</table>', raw_html, re.IGNORECASE | re.DOTALL)
         
         if not calendar_match:
-            print("ERROR: 'eventscheduletable' not found. Cloudflare might still be blocking us.")
-            # Print the title to confirm if we got through
+            print("ERROR: 'eventscheduletable' not found.")
             title_match = re.search(r'<title>(.*?)</title>', raw_html, re.IGNORECASE)
             if title_match:
                 print(f"DEBUG: Page Title seen -> {title_match.group(1).strip()}")
             return []
 
-        print("Successfully bypassed Cloudflare and found the calendar table!")
+        print("Successfully punched through Cloudflare and found the calendar table!")
         calendar_html = calendar_match.group(1)
 
         # 2. Extract the text directly from the colored event boxes
@@ -76,7 +69,7 @@ def post_discord(events):
 
 if __name__ == "__main__":
     if DISCORD_WEBHOOK_URL:
-        results = scrape_tibia_direct()
+        results = scrape_tibia_impersonate()
         post_discord(results)
     else:
         print("Error: DISCORD_WEBHOOK_URL is missing from environment variables.")
