@@ -11,21 +11,18 @@ def get_wiki_link(name):
     clean_name = name.replace("XP/Skill Event", "Double XP and Skill").replace("'", "").replace(" ", "_")
     return f"https://tibia.fandom.com/wiki/{clean_name}"
 
-def scrape_tibia_stealth():
+def scrape_tibia_windows():
     events = set()
     try:
-        print("Deploying Headed Browser + Stealth (v2) to bypass Cloudflare JS Challenge...")
+        print("Deploying Windows-Native Browser + Stealth to bypass Cloudflare...")
         
-        # New API: Wraps the entire Playwright instance in Stealth mode automatically
         with Stealth().use_sync(sync_playwright()) as p:
-            # headless=False pushes the browser to the invisible Xvfb monitor
+            # We can run headless=True on Windows because the OS fingerprint is trusted
             browser = p.chromium.launch(
-                headless=False, 
-                args=[
-                    '--disable-blink-features=AutomationControlled',
-                    '--disable-infobars'
-                ]
+                headless=True, 
+                args=['--disable-blink-features=AutomationControlled']
             )
+            
             context = browser.new_context(
                 viewport={'width': 1920, 'height': 1080},
                 user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36'
@@ -35,14 +32,12 @@ def scrape_tibia_stealth():
             page.goto(TARGET_TIBIA_URL, timeout=60000)
             print(f"DEBUG: Initial Page Title -> {page.title()}")
             
-            # Wait for Cloudflare to solve its own challenge and load the table
-            print("Waiting for Cloudflare challenge to resolve (up to 45s)...")
+            print("Waiting for the calendar to render (up to 45s)...")
             page.wait_for_selector("#eventscheduletable", timeout=45000)
-            print("SUCCESS! We are past Cloudflare and the table rendered.")
+            print("SUCCESS! We bypassed Cloudflare!")
             
             calendar_html = page.inner_html("#eventscheduletable")
             
-            # Apply our targeted Regex for the colored bars
             bar_pattern = r'<div style="background:#[a-zA-Z0-9]+;[^>]*>\s*\*?(.*?)\s*</div>'
             found_bars = re.findall(bar_pattern, calendar_html, re.IGNORECASE)
 
@@ -78,7 +73,5 @@ def post_discord(events):
 
 if __name__ == "__main__":
     if DISCORD_WEBHOOK_URL:
-        results = scrape_tibia_stealth()
+        results = scrape_tibia_windows()
         post_discord(results)
-    else:
-        print("Error: DISCORD_WEBHOOK_URL is missing.")
