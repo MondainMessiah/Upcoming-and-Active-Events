@@ -7,7 +7,8 @@ on:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    # THIS IS THE MAGIC TRICK: We use a real Windows OS instead of Linux
+    runs-on: windows-latest
 
     steps:
       - name: Checkout Repository
@@ -19,19 +20,13 @@ jobs:
           python-version: '3.10'
           cache: 'pip'
 
-      - name: Install System Dependencies for Fake Monitor
-        # This installs Xvfb, allowing the browser to draw visuals on a server
-        run: sudo apt-get install -y xvfb
-
       - name: Install Python Dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt || true
           pip install playwright playwright-stealth requests
-          python -m playwright install chromium --with-deps
+          python -m playwright install chromium
 
       - name: Run Event Scraper
         env:
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
-        # xvfb-run executes the script inside the fake monitor environment
-        run: xvfb-run python events.py
+        run: python events.py
